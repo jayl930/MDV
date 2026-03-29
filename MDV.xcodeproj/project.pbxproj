@@ -6,13 +6,31 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A49769B12F783D3C0001A422 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = A4MDV00032F783B000001A422 /* Markdown */; };
+		A49769B22F783D3C0001A422 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A4MDV00042F783B000001A422 /* Sparkle */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		A49768FE2F783A110001A422 /* MDV.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MDV.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A4MDV00052F783B000001A422 /* Exceptions for "MDV" folder in "MDV" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A49768FD2F783A110001A422 /* MDV */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A49769002F783A110001A422 /* MDV */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A4MDV00052F783B000001A422 /* Exceptions for "MDV" folder in "MDV" target */,
+			);
 			path = MDV;
 			sourceTree = "<group>";
 		};
@@ -23,6 +41,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A49769B22F783D3C0001A422 /* Sparkle in Frameworks */,
+				A49769B12F783D3C0001A422 /* Markdown in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +85,8 @@
 			);
 			name = MDV;
 			packageProductDependencies = (
+				A4MDV00032F783B000001A422 /* Markdown */,
+				A4MDV00042F783B000001A422 /* Sparkle */,
 			);
 			productName = MDV;
 			productReference = A49768FE2F783A110001A422 /* MDV.app */;
@@ -94,6 +116,10 @@
 			);
 			mainGroup = A49768F52F783A110001A422;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A4MDV00012F783B000001A422 /* XCRemoteSwiftPackageReference "swift-markdown" */,
+				A4MDV00022F783B000001A422 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A49768FF2F783A110001A422 /* Products */;
 			projectDirPath = "";
@@ -257,8 +283,9 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
+				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MDV/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -289,8 +316,9 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
+				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MDV/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -331,6 +359,38 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A4MDV00012F783B000001A422 /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/swiftlang/swift-markdown.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.4.0;
+			};
+		};
+		A4MDV00022F783B000001A422 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A4MDV00032F783B000001A422 /* Markdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A4MDV00012F783B000001A422 /* XCRemoteSwiftPackageReference "swift-markdown" */;
+			productName = Markdown;
+		};
+		A4MDV00042F783B000001A422 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A4MDV00022F783B000001A422 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A49768F62F783A110001A422 /* Project object */;
 }
