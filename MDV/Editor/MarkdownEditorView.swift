@@ -167,7 +167,6 @@ struct MarkdownEditorView: NSViewRepresentable {
         func handleSelectionChange(_ range: NSRange) {
             guard let textView = textView, let layoutManager = textView.layoutManager else { return }
 
-            // Update syntax hiding (show syntax on cursor line, hide elsewhere)
             syntaxHider.updateVisibility(
                 layoutManager: layoutManager,
                 glyphManager: textView.glyphManager,
@@ -177,9 +176,7 @@ struct MarkdownEditorView: NSViewRepresentable {
                 bulletRanges: lastBulletRanges
             )
 
-            // Set typing attributes based on cursor context
             updateTypingAttributes(at: range)
-
             textView.needsDisplay = true
         }
 
@@ -275,12 +272,28 @@ struct MarkdownEditorView: NSViewRepresentable {
                     bulletRanges: &lastBulletRanges,
                     textView: textView
                 )
+                // Fix CJK font cascade: resetLineAttributes sets .systemFont which
+                // lacks CJK glyphs. fixAttributes(in:) triggers font substitution
+                // (e.g. Apple SD Gothic Neo for Korean) BEFORE endEditing's nested
+                // processEditing, so the cascade is already correct when it runs.
+                let nsString = textView.string as NSString
+                if nsString.length > 0 {
+                    let lineRange = nsString.lineRange(for: NSRange(
+                        location: min(editedRange.location, max(0, nsString.length - 1)),
+                        length: min(editedRange.length, nsString.length - min(editedRange.location, nsString.length))
+                    ))
+                    var fixStart = lineRange.location
+                    var fixEnd = NSMaxRange(lineRange)
+                    if fixStart > 0 {
+                        fixStart = nsString.lineRange(for: NSRange(location: fixStart - 1, length: 0)).location
+                    }
+                    if fixEnd < nsString.length {
+                        fixEnd = NSMaxRange(nsString.lineRange(for: NSRange(location: fixEnd, length: 0)))
+                    }
+                    textStorage.fixAttributes(in: NSRange(location: fixStart, length: fixEnd - fixStart))
+                }
                 textStorage.endEditing()
                 isRestyling = false
-
-                // Force full redraw so custom backgrounds (code blocks, blockquotes)
-                // update correctly after range changes
-                textView.needsDisplay = true
             }
         }
 

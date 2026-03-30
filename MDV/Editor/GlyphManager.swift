@@ -42,6 +42,12 @@ final class GlyphManager: NSObject, NSLayoutManagerDelegate {
             let charIndex = charIndexes[i]
 
             if hidden.contains(charIndex) {
+                // Only hide ASCII characters — all markdown syntax is ASCII.
+                // Prevents CJK characters from being hidden if ranges drift.
+                if let storage = layoutManager.textStorage, charIndex < storage.length {
+                    let ch = (storage.string as NSString).character(at: charIndex)
+                    if ch >= 0x80 { continue }
+                }
                 if hasZWSGlyph {
                     modifiedGlyphs[i] = zwsGlyph
                 } else {

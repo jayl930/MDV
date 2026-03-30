@@ -83,10 +83,9 @@ final class IncrementalDetector {
         // Check if fence delimiters changed and rescan if so
         let fenceChanged = updateFenceState(affectedLines: affectedLines, nsString: nsString, textStorage: textStorage, theme: theme, typography: typography, textView: textView)
 
-        // Always rebuild code block ranges to keep them in sync with fence state.
-        // shiftAllRanges provides a fast approximation, but fence state is the
-        // source of truth — rebuild ensures backgrounds match actual text layout.
-        rebuildCodeBlockRanges(nsString: nsString, theme: theme, textView: textView)
+        if fenceChanged {
+            rebuildCodeBlockRanges(nsString: nsString, theme: theme, textView: textView)
+        }
 
         // Process each affected line
         for lineRange in affectedLines {

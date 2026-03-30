@@ -50,11 +50,15 @@ final class SyntaxHider {
         previousBullets = bullets
 
         // Only invalidate glyph ranges that actually changed visibility
+        let nsString = string as NSString
         for range in allChanged.rangeView {
             let nsRange = clamp(NSRange(location: range.lowerBound, length: range.count), to: fullLength)
             if nsRange.length > 0 {
                 layoutManager.invalidateGlyphs(forCharacterRange: nsRange, changeInLength: 0, actualCharacterRange: nil)
-                layoutManager.invalidateLayout(forCharacterRange: nsRange, actualCharacterRange: nil)
+                // Invalidate layout for the entire line — glyph width changes
+                // (ZWSP ↔ visible) shift all subsequent characters on the line
+                let lineRange = nsString.lineRange(for: nsRange)
+                layoutManager.invalidateLayout(forCharacterRange: lineRange, actualCharacterRange: nil)
             }
         }
 
