@@ -414,21 +414,12 @@ final class InlineRenderer {
 
         if lineText.dropFirst(leading).hasPrefix("- ") || lineText.dropFirst(leading).hasPrefix("* ") || lineText.dropFirst(leading).hasPrefix("+ ") {
             let dashRange = NSRange(location: range.location + leading, length: 1)
-            let spaceRange = NSRange(location: range.location + leading + 1, length: 1)
             ctx.bulletRanges.append(dashRange)
-            ctx.syntaxRanges.append(spaceRange)
+            // Space after bullet stays visible for proper spacing
         } else {
             let rest = lineText.dropFirst(leading)
-            if let dotIndex = rest.firstIndex(of: ".") {
-                let numPart = rest[rest.startIndex..<dotIndex]
-                if numPart.allSatisfy(\.isNumber) {
-                    let numLen = numPart.count
-                    let dotSpaceRange = NSRange(location: range.location + leading + numLen, length: 2)
-                    if dotSpaceRange.location + dotSpaceRange.length <= range.location + range.length {
-                        ctx.syntaxRanges.append(dotSpaceRange)
-                    }
-                }
-            }
+            // Ordered list: keep "1. " fully visible (number, dot, and space)
+
         }
 
         for child in listItem.children {

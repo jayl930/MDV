@@ -115,11 +115,26 @@ final class IncrementalDetector {
             resetLineAttributes(lineRange, textStorage: textStorage, theme: theme, typography: typography)
 
             // Detect structural prefix (heading, blockquote, HR, list)
-            detectStructuralPrefix(
+            let isStructural = detectStructuralPrefix(
                 lineText: trimmedText, lineRange: lineRange,
                 textStorage: textStorage, theme: theme, typography: typography,
                 syntaxRanges: &syntaxRanges, bulletRanges: &bulletRanges, textView: textView
             )
+
+            // Blockquote continuation: if no structural prefix was found, check if
+            // this line is inside a multi-line blockquote range (from full render).
+            // Continuation lines don't have ">" but are semantically part of the block.
+            if !isStructural {
+                let isInBlockquote = textView.blockQuoteRanges.contains {
+                    NSIntersectionRange($0.characterRange, lineRange).length > 0
+                }
+                if isInBlockquote {
+                    textStorage.addAttributes([
+                        .paragraphStyle: typography.blockQuoteParagraphStyle,
+                        .foregroundColor: theme.secondaryText
+                    ], range: lineRange)
+                }
+            }
 
             // Detect inline patterns (bold, italic, code, strikethrough, links)
             detectInlinePatterns(
@@ -321,7 +336,13 @@ final class IncrementalDetector {
         syntaxRanges.removeAll { NSIntersectionRange($0, lineRange).length > 0 }
         bulletRanges.removeAll { NSIntersectionRange($0, lineRange).length > 0 }
         textView.inlineCodeRanges.removeAll { NSIntersectionRange($0.range, lineRange).length > 0 }
-        textView.blockQuoteRanges.removeAll { NSIntersectionRange($0.characterRange, lineRange).length > 0 }
+        // blockQuoteRanges: only purge ranges entirely within this line.
+        // Multi-line ranges (from full render) are preserved so continuation lines
+        // keep their blockquote styling. Drift reconciliation corrects any staleness.
+        textView.blockQuoteRanges.removeAll {
+            $0.characterRange.location >= lineRange.location &&
+            NSMaxRange($0.characterRange) <= NSMaxRange(lineRange)
+        }
         textView.horizontalRuleRanges.removeAll { NSIntersectionRange($0.range, lineRange).length > 0 }
         // codeBlockRanges NOT purged here — rebuilt in fence state pass
     }
@@ -341,12 +362,14 @@ final class IncrementalDetector {
 
     // MARK: - Structural Prefix Detection
 
+    /// Returns `true` if a structural prefix was detected (heading, blockquote, HR, list).
+    @discardableResult
     private func detectStructuralPrefix(
         lineText: String, lineRange: NSRange,
         textStorage: NSTextStorage, theme: MDVTheme, typography: Typography,
         syntaxRanges: inout [NSRange], bulletRanges: inout [NSRange],
         textView: MarkdownTextView
-    ) {
+    ) -> Bool {
         let stripped = lineText.trimmingCharacters(in: .whitespaces)
         let indent = lineText.count - lineText.drop(while: { $0 == " " }).count
 
@@ -362,7 +385,7 @@ final class IncrementalDetector {
                 ], range: lineRange)
                 let syntaxLen = min(level + 1, lineRange.length)
                 syntaxRanges.append(NSRange(location: lineRange.location + indent, length: syntaxLen))
-                return
+                return true
             }
         }
 
@@ -372,7 +395,7 @@ final class IncrementalDetector {
             if stripped.count >= 3 && stripped.allSatisfy({ $0 == hrChar || $0 == " " }) && stripped.filter({ $0 == hrChar }).count >= 3 {
                 textStorage.addAttribute(.foregroundColor, value: NSColor.clear, range: lineRange)
                 textView.horizontalRuleRanges.append((range: lineRange, color: theme.divider))
-                return
+                return true
             }
         }
 
@@ -389,8 +412,7 @@ final class IncrementalDetector {
             ))
             let syntaxLen = stripped.count > 1 && stripped.dropFirst().first == " " ? 2 : 1
             syntaxRanges.append(NSRange(location: lineRange.location + indent, length: syntaxLen))
-            // Don't return — continue to inline detection for blockquote content
-            return
+            return true
         }
 
         // Bullet list
@@ -400,10 +422,8 @@ final class IncrementalDetector {
                 let bulletLoc = lineRange.location + indent
                 textStorage.addAttribute(.paragraphStyle, value: typography.listParagraphStyle(level: 0), range: lineRange)
                 bulletRanges.append(NSRange(location: bulletLoc, length: 1))
-                if bulletLoc + 1 < lineRange.location + lineRange.length {
-                    syntaxRanges.append(NSRange(location: bulletLoc + 1, length: 1))
-                }
-                return
+                // Space after bullet stays visible for proper spacing
+                return true
             }
         }
 
@@ -415,14 +435,13 @@ final class IncrementalDetector {
                 if afterDot < stripped.endIndex && stripped[afterDot] == " " {
                     let numLen = numPart.count
                     textStorage.addAttribute(.paragraphStyle, value: typography.listParagraphStyle(level: 0), range: lineRange)
-                    let dotSpaceRange = NSRange(location: lineRange.location + indent + numLen, length: 2)
-                    if dotSpaceRange.location + dotSpaceRange.length <= lineRange.location + lineRange.length {
-                        syntaxRanges.append(dotSpaceRange)
-                    }
-                    return
+                    // Keep "1. " fully visible (number, dot, and space)
+                    return true
                 }
             }
         }
+
+        return false
     }
 
     // MARK: - Inline Pattern Detection

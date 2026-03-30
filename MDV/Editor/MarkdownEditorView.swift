@@ -273,15 +273,15 @@ struct MarkdownEditorView: NSViewRepresentable {
                     textView: textView
                 )
                 // Fix CJK font cascade: resetLineAttributes sets .systemFont which
-                // lacks CJK glyphs. fixAttributes(in:) triggers font substitution
-                // (e.g. Apple SD Gothic Neo for Korean) BEFORE endEditing's nested
-                // processEditing, so the cascade is already correct when it runs.
+                // lacks CJK glyphs. We manually substitute fonts for characters the
+                // current font can't render, using CTFontCreateForString.
+                // We ONLY touch .font — never .foregroundColor or .paragraphStyle —
+                // so blockquote, heading, and code block styling is preserved.
                 let nsString = textView.string as NSString
                 if nsString.length > 0 {
-                    let lineRange = nsString.lineRange(for: NSRange(
-                        location: min(editedRange.location, max(0, nsString.length - 1)),
-                        length: min(editedRange.length, nsString.length - min(editedRange.location, nsString.length))
-                    ))
+                    let safeEditLoc = min(editedRange.location, max(0, nsString.length - 1))
+                    let safeEditLen = min(editedRange.length, nsString.length - safeEditLoc)
+                    let lineRange = nsString.lineRange(for: NSRange(location: safeEditLoc, length: safeEditLen))
                     var fixStart = lineRange.location
                     var fixEnd = NSMaxRange(lineRange)
                     if fixStart > 0 {
@@ -290,10 +290,56 @@ struct MarkdownEditorView: NSViewRepresentable {
                     if fixEnd < nsString.length {
                         fixEnd = NSMaxRange(nsString.lineRange(for: NSRange(location: fixEnd, length: 0)))
                     }
-                    textStorage.fixAttributes(in: NSRange(location: fixStart, length: fixEnd - fixStart))
+                    let fixRange = NSRange(location: fixStart, length: fixEnd - fixStart)
+                    self.fixCJKFontCascade(in: fixRange, textStorage: textStorage)
                 }
                 textStorage.endEditing()
                 isRestyling = false
+            }
+        }
+
+        /// Fixes font cascade for CJK characters by substituting fonts that can
+        /// actually render each character. Only touches .font attribute — preserves
+        /// foreground color, paragraph style, and all other attributes.
+        private func fixCJKFontCascade(in range: NSRange, textStorage: NSTextStorage) {
+            let nsStr = textStorage.string as NSString
+            textStorage.enumerateAttribute(.font, in: range, options: []) { value, attrRange, _ in
+                guard let font = value as? NSFont else { return }
+                let ctFont = font as CTFont
+                var runStart = attrRange.location
+                let runEnd = NSMaxRange(attrRange)
+                while runStart < runEnd {
+                    let ch = nsStr.character(at: runStart)
+                    if ch >= 0x80 {
+                        // Non-ASCII — check if font can render this character
+                        var glyph: CGGlyph = 0
+                        var unichar = ch
+                        if !CTFontGetGlyphsForCharacters(ctFont, &unichar, &glyph, 1) {
+                            // Find the correct substitute font via Core Text
+                            let charStr = nsStr.substring(with: NSRange(location: runStart, length: 1)) as CFString
+                            let subFont = CTFontCreateForString(ctFont, charStr, CFRange(location: 0, length: 1))
+                            // Batch consecutive characters that need the same substitute font
+                            var batchEnd = runStart + 1
+                            while batchEnd < runEnd {
+                                let nextCh = nsStr.character(at: batchEnd)
+                                if nextCh < 0x80 { break }
+                                var nextGlyph: CGGlyph = 0
+                                var nextUnichar = nextCh
+                                if CTFontGetGlyphsForCharacters(ctFont, &nextUnichar, &nextGlyph, 1) { break }
+                                // Verify same substitute font
+                                let nextStr = nsStr.substring(with: NSRange(location: batchEnd, length: 1)) as CFString
+                                let nextSubFont = CTFontCreateForString(ctFont, nextStr, CFRange(location: 0, length: 1))
+                                if !CFEqual(subFont, nextSubFont) { break }
+                                batchEnd += 1
+                            }
+                            textStorage.addAttribute(.font, value: subFont as NSFont,
+                                                     range: NSRange(location: runStart, length: batchEnd - runStart))
+                            runStart = batchEnd
+                            continue
+                        }
+                    }
+                    runStart += 1
+                }
             }
         }
 
