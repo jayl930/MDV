@@ -1,0 +1,26 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0">
+    <channel>
+        <title>MDV</title>
+        <item>
+            <title>Version 1.0</title>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>1.0</sparkle:shortVersionString>
+            <pubDate>Mon, 31 Mar 2026 00:00:00 +0000</pubDate>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>MDV 1.0 — Initial Release</h2>
+                <ul>
+                    <li>Live markdown editing with syntax highlighting</li>
+                    <li>Real-time rendered preview</li>
+                    <li>Multiple themes support</li>
+                    <li>Auto-update via Sparkle</li>
+                </ul>
+            ]]></description>
+            <enclosure url="https://github.com/jayl930/MDV/releases/download/v1.0/MDV-1.0.dmg"
+                       type="application/octet-stream"
+                       sparkle:edSignature="/4kiaVQQkQaJKgYmZ013/H0zmY1yc2kSe0g0Sw7YgjQxSWv/uvLOGZZ/jgRC5Md99Bj548YHHInd08vkX7OXBA=="
+                       length="2460075"/>
+        </item>
+    </channel>
+</rss>

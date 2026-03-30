@@ -30,6 +30,6 @@ final class UpdateChecker: NSObject, SPUUpdaterDelegate {
     }
 
     nonisolated func feedURLString(for updater: SPUUpdater) -> String? {
-        "https://raw.githubusercontent.com/jayl930/mdv-releases/main/appcast.xml"
+        "https://raw.githubusercontent.com/jayl930/MDV/main/appcast.xml"
     }
 }
