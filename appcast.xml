@@ -7,7 +7,7 @@
             <sparkle:version>1</sparkle:version>
             <sparkle:shortVersionString>1.0</sparkle:shortVersionString>
             <pubDate>Mon, 31 Mar 2026 00:00:00 +0000</pubDate>
-            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <description><![CDATA[
                 <h2>MDV 1.0 — Initial Release</h2>
                 <ul>
@@ -19,8 +19,8 @@
             ]]></description>
             <enclosure url="https://github.com/jayl930/MDV/releases/download/v1.0/MDV-1.0.dmg"
                        type="application/octet-stream"
-                       sparkle:edSignature="fo2DDoNdtUJgIhoKhmW//7CtRTEUfc+olDvhy4v14sbHU9laDf58D6Hq12L7QOvEMf5eZ9z0u/pNkdYuUM1SDg=="
-                       length="2459908"/>
+                       sparkle:edSignature="8qxR1WMqboV7lUwF3VlqSR5I/fnPip+tfxx5QaYukVAnqgbKU/l6N/VgzGVQ6C/C4WUwRl+xGo18pLOac8viBA=="
+                       length="3162432"/>
         </item>
     </channel>
 </rss>
