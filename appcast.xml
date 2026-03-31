@@ -3,6 +3,27 @@
     <channel>
         <title>MDV</title>
         <item>
+            <title>Version 1.1</title>
+            <sparkle:version>2</sparkle:version>
+            <sparkle:shortVersionString>1.1</sparkle:shortVersionString>
+            <pubDate>Tue, 01 Apr 2026 00:00:00 +0000</pubDate>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>MDV 1.1</h2>
+                <ul>
+                    <li>Table of Contents sidebar navigation</li>
+                    <li>QuickLook extension for markdown preview in Finder</li>
+                    <li>Improved editor rendering and table support</li>
+                    <li>Theme and typography refinements</li>
+                    <li>Updated app icon</li>
+                </ul>
+            ]]></description>
+            <enclosure url="https://github.com/jayl930/MDV/releases/download/v1.1/MDV-1.1.dmg"
+                       type="application/octet-stream"
+                       sparkle:edSignature="5hKHD1C1xvJRsyTONcgQRb4NqtHL08DScEK9xJ3UsCd5HOuIdFzmZRwu7a51bMERZb/r56Pmf6h2tke1tM9nAA=="
+                       length="3753301"/>
+        </item>
+        <item>
             <title>Version 1.0</title>
             <sparkle:version>1</sparkle:version>
             <sparkle:shortVersionString>1.0</sparkle:shortVersionString>
