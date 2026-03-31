@@ -3,6 +3,7 @@ import AppKit
 
 struct MarkdownEditorView: NSViewRepresentable {
     @Binding var document: MarkdownDocument
+    var tocModel: ToCModel
     @Environment(MDVTheme.self) private var theme
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -36,6 +37,12 @@ struct MarkdownEditorView: NSViewRepresentable {
         scrollView.documentView = textView
         context.coordinator.textView = textView
         context.coordinator.scrollView = scrollView
+        context.coordinator.tocModel = tocModel
+
+        // Wire TOC scroll callback
+        tocModel.scrollToRange = { [weak coordinator = context.coordinator] sourceRange in
+            coordinator?.scrollToHeading(sourceRange: sourceRange)
+        }
 
         // Set up NSTextStorageDelegate for structural change detection
         textView.textStorage?.delegate = context.coordinator
@@ -95,6 +102,7 @@ struct MarkdownEditorView: NSViewRepresentable {
         var isUpdating = false
         var theme: MDVTheme
         var typography: Typography
+        var tocModel: ToCModel
         private let renderer = InlineRenderer()
         private let syntaxHider = SyntaxHider()
         private let incrementalDetector = IncrementalDetector()
@@ -117,6 +125,7 @@ struct MarkdownEditorView: NSViewRepresentable {
             self.theme = parent.theme
             self.typography = Typography(baseFontSize: parent.theme.fontSize)
             self.sourceText = parent.document.text
+            self.tocModel = parent.tocModel
         }
 
         // MARK: - Text Change Handling (no re-rendering, deferred save)
@@ -151,6 +160,7 @@ struct MarkdownEditorView: NSViewRepresentable {
 
             // Reconcile: compare incremental ranges with fresh parse
             let freshResult = renderer.render(text: sourceText, theme: theme, typography: typography)
+            tocModel.entries = freshResult.headings
             let driftDetected =
                 freshResult.syntaxRanges.count != lastSyntaxRanges.count ||
                 freshResult.codeBlockRanges.count != textView.codeBlockRanges.count ||
@@ -180,6 +190,54 @@ struct MarkdownEditorView: NSViewRepresentable {
             textView.needsDisplay = true
         }
 
+        // MARK: - TOC Scroll
+
+        /// Scrolls to a heading given its source-text range, mapping through table attachments.
+        func scrollToHeading(sourceRange: NSRange) {
+            guard let textView = textView else { return }
+
+            // Map source range to display range by accounting for table attachments
+            var displayLocation = sourceRange.location
+            for (_, attachment) in tableAttachments {
+                let tableSourceRange = attachment.sourceMarkdownRange
+                if tableSourceRange.location + tableSourceRange.length <= sourceRange.location {
+                    // Table is before this heading — it replaced N chars with 1
+                    displayLocation -= (tableSourceRange.length - 1)
+                }
+            }
+
+            let nsString = textView.string as NSString
+            let clampedLocation = min(displayLocation, max(0, nsString.length - 1))
+            let lineRange = nsString.lineRange(for: NSRange(location: clampedLocation, length: 0))
+
+            // Scroll to the heading line
+            textView.scrollRangeToVisible(lineRange)
+
+            // Brief themed highlight instead of yellow showFindIndicator
+            guard let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer else { return }
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+            var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            rect.origin.x = 0
+            rect.size.width = textView.bounds.width
+            let origin = textView.textContainerOrigin
+            rect.origin.x += origin.x
+            rect.origin.y += origin.y
+
+            let highlight = NSView(frame: rect)
+            highlight.wantsLayer = true
+            highlight.layer?.backgroundColor = theme.accent.withAlphaComponent(0.15).cgColor
+            highlight.layer?.cornerRadius = 3
+            textView.addSubview(highlight)
+
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.8
+                highlight.animator().alphaValue = 0
+            } completionHandler: {
+                highlight.removeFromSuperview()
+            }
+        }
+
         // MARK: - Typing Attributes
 
         /// Sets typingAttributes based on the current line's markdown structure.
@@ -207,7 +265,7 @@ struct MarkdownEditorView: NSViewRepresentable {
                     textView.typingAttributes = [
                         .font: typography.body,
                         .foregroundColor: theme.text,
-                        .paragraphStyle: typography.bodyParagraphStyle
+                        .paragraphStyle: typography.emptyLineParagraphStyle
                     ]
                     return
                 }
@@ -417,6 +475,7 @@ struct MarkdownEditorView: NSViewRepresentable {
 
             lastSyntaxRanges = result.syntaxRanges
             lastBulletRanges = result.bulletRanges
+            tocModel.entries = result.headings
 
             // Update custom drawing ranges
             textView.blockQuoteRanges = result.blockQuoteRanges.map { range in

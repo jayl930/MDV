@@ -73,35 +73,7 @@ final class MarkdownTextView: NSTextView {
     }
 
     override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
-        var correctedRect = rect
-        let sel = selectedRange()
-        if sel.length == 0,
-           let lm = layoutManager,
-           let tc = textContainer,
-           lm.numberOfGlyphs > 0 {
-            let safeCharIdx = min(sel.location, max(0, (textStorage?.length ?? 1) - 1))
-            let gi = lm.glyphIndexForCharacter(at: safeCharIdx)
-            let safeGI = min(gi, lm.numberOfGlyphs - 1)
-            let frag = lm.lineFragmentRect(forGlyphAt: safeGI, effectiveRange: nil)
-            let loc = lm.location(forGlyphAt: safeGI)
-
-            // For end-of-line insertion (cursor past last glyph on line),
-            // use the glyph's advance to position cursor after it
-            var x = frag.origin.x + loc.x + textContainerInset.width
-            if sel.location > safeCharIdx {
-                // Cursor at end of document — position after last glyph
-                let usedRect = lm.lineFragmentUsedRect(forGlyphAt: safeGI, effectiveRange: nil)
-                x = frag.origin.x + usedRect.width + textContainerInset.width
-            }
-
-            correctedRect = NSRect(
-                x: x,
-                y: frag.origin.y + textContainerInset.height,
-                width: rect.width,
-                height: frag.height
-            )
-        }
-        super.drawInsertionPoint(in: correctedRect, color: color, turnedOn: flag)
+        super.drawInsertionPoint(in: rect, color: color, turnedOn: flag)
     }
 
     // MARK: - Drawing Ranges

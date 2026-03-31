@@ -29,7 +29,9 @@ final class MDVTheme {
         switch AppearanceMode(rawValue: appearanceMode) ?? .system {
         case .light: return false
         case .dark: return true
-        case .system: return NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        case .system:
+            let appearance = NSApp?.effectiveAppearance ?? NSAppearance.currentDrawing()
+            return appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         }
     }
 
@@ -89,9 +91,14 @@ final class MDVTheme {
         isDark ? NSColor(hex: 0x3A3632) : NSColor(hex: 0xD8D6D0)
     }
 
+    var sidebarBackground: NSColor {
+        background
+    }
+
     // MARK: - SwiftUI Colors
 
     var backgroundSUI: Color { Color(nsColor: background) }
+    var sidebarBackgroundSUI: Color { Color(nsColor: sidebarBackground) }
     var textSUI: Color { Color(nsColor: text) }
     var accentSUI: Color { Color(nsColor: accent) }
     var secondaryTextSUI: Color { Color(nsColor: secondaryText) }

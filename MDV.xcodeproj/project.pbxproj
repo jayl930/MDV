@@ -9,10 +9,37 @@
 /* Begin PBXBuildFile section */
 		A49769B12F783D3C0001A422 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = A4MDV00032F783B000001A422 /* Markdown */; };
 		A49769B22F783D3C0001A422 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A4MDV00042F783B000001A422 /* Sparkle */; };
+		A4QL00012FA2B0000001A422 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = A4QL00092FA2B0000001A422 /* Markdown */; };
+		A4QL00052FA2B0000001A422 /* MDVQuickLook.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A4QL00062FA2B0000001A422 /* MDVQuickLook.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A4QL00022FA2B0000001A422 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A49768F62F783A110001A422 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A4QL00032FA2B0000001A422;
+			remoteInfo = MDVQuickLook;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A4QL00042FA2B0000001A422 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A4QL00052FA2B0000001A422 /* MDVQuickLook.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		A49768FE2F783A110001A422 /* MDV.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MDV.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A4QL00062FA2B0000001A422 /* MDVQuickLook.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MDVQuickLook.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -23,6 +50,47 @@
 			);
 			target = A49768FD2F783A110001A422 /* MDV */;
 		};
+		A4QL000A2FA2B0000001A422 /* Exceptions for "MDV" folder in "MDVQuickLook" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				Assets.xcassets,
+				MDVApp.swift,
+				ContentView.swift,
+				MarkdownDocument.swift,
+				MDV.entitlements,
+				SettingsView.swift,
+				Editor/MarkdownEditorView.swift,
+				Editor/MarkdownTextView.swift,
+				Editor/GlyphManager.swift,
+				Editor/TableAttachment.swift,
+				Editor/TableAttachmentView.swift,
+				Editor/TableOperations.swift,
+				Rendering/IncrementalDetector.swift,
+				Rendering/SyntaxHider.swift,
+				Rendering/BlockRenderer.swift,
+				TOC/ToCModel.swift,
+				TOC/TableOfContentsView.swift,
+				Services/UpdateChecker.swift,
+			);
+			target = A4QL00032FA2B0000001A422 /* MDVQuickLook */;
+		};
+		A4QL000B2FA2B0000001A422 /* Exceptions for "MDVQuickLook" folder in "MDV" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+				MDVQuickLook.entitlements,
+				PreviewViewController.swift,
+			);
+			target = A49768FD2F783A110001A422 /* MDV */;
+		};
+		A4QL00122FA2B0000001A422 /* Exceptions for "MDVQuickLook" folder in "MDVQuickLook" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A4QL00032FA2B0000001A422 /* MDVQuickLook */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -30,8 +98,18 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				A4MDV00052F783B000001A422 /* Exceptions for "MDV" folder in "MDV" target */,
+				A4QL000A2FA2B0000001A422 /* Exceptions for "MDV" folder in "MDVQuickLook" target */,
 			);
 			path = MDV;
+			sourceTree = "<group>";
+		};
+		A4QL000C2FA2B0000001A422 /* MDVQuickLook */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A4QL000B2FA2B0000001A422 /* Exceptions for "MDVQuickLook" folder in "MDV" target */,
+				A4QL00122FA2B0000001A422 /* Exceptions for "MDVQuickLook" folder in "MDVQuickLook" target */,
+			);
+			path = MDVQuickLook;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -46,6 +124,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A4QL00072FA2B0000001A422 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A4QL00012FA2B0000001A422 /* Markdown in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -53,6 +139,7 @@
 			isa = PBXGroup;
 			children = (
 				A49769002F783A110001A422 /* MDV */,
+				A4QL000C2FA2B0000001A422 /* MDVQuickLook */,
 				A49768FF2F783A110001A422 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -61,6 +148,7 @@
 			isa = PBXGroup;
 			children = (
 				A49768FE2F783A110001A422 /* MDV.app */,
+				A4QL00062FA2B0000001A422 /* MDVQuickLook.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -75,13 +163,16 @@
 				A49768FA2F783A110001A422 /* Sources */,
 				A49768FB2F783A110001A422 /* Frameworks */,
 				A49768FC2F783A110001A422 /* Resources */,
+				A4QL00042FA2B0000001A422 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A4QL00082FA2B0000001A422 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A49769002F783A110001A422 /* MDV */,
+				A4QL000C2FA2B0000001A422 /* MDVQuickLook */,
 			);
 			name = MDV;
 			packageProductDependencies = (
@@ -91,6 +182,30 @@
 			productName = MDV;
 			productReference = A49768FE2F783A110001A422 /* MDV.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A4QL00032FA2B0000001A422 /* MDVQuickLook */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A4QL000D2FA2B0000001A422 /* Build configuration list for PBXNativeTarget "MDVQuickLook" */;
+			buildPhases = (
+				A4QL000E2FA2B0000001A422 /* Sources */,
+				A4QL00072FA2B0000001A422 /* Frameworks */,
+				A4QL000F2FA2B0000001A422 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A49769002F783A110001A422 /* MDV */,
+				A4QL000C2FA2B0000001A422 /* MDVQuickLook */,
+			);
+			name = MDVQuickLook;
+			packageProductDependencies = (
+				A4QL00092FA2B0000001A422 /* Markdown */,
+			);
+			productName = MDVQuickLook;
+			productReference = A4QL00062FA2B0000001A422 /* MDVQuickLook.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -103,6 +218,9 @@
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
 					A49768FD2F783A110001A422 = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					A4QL00032FA2B0000001A422 = {
 						CreatedOnToolsVersion = 26.3;
 					};
 				};
@@ -126,12 +244,20 @@
 			projectRoot = "";
 			targets = (
 				A49768FD2F783A110001A422 /* MDV */,
+				A4QL00032FA2B0000001A422 /* MDVQuickLook */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		A49768FC2F783A110001A422 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A4QL000F2FA2B0000001A422 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -148,7 +274,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A4QL000E2FA2B0000001A422 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A4QL00082FA2B0000001A422 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A4QL00032FA2B0000001A422 /* MDVQuickLook */;
+			targetProxy = A4QL00022FA2B0000001A422 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A49769072F783A120001A422 /* Debug */ = {
@@ -341,6 +482,66 @@
 			};
 			name = Release;
 		};
+		A4QL00102FA2B0000001A422 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = MDVQuickLook/MDVQuickLook.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = C5VZ9848T6;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MDVQuickLook/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "MDV Quick Look";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Kryptic.MDV.MDVQuickLook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A4QL00112FA2B0000001A422 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = MDVQuickLook/MDVQuickLook.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = C5VZ9848T6;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MDVQuickLook/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "MDV Quick Look";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Kryptic.MDV.MDVQuickLook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -358,6 +559,15 @@
 			buildConfigurations = (
 				A497690A2F783A120001A422 /* Debug */,
 				A497690B2F783A120001A422 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A4QL000D2FA2B0000001A422 /* Build configuration list for PBXNativeTarget "MDVQuickLook" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A4QL00102FA2B0000001A422 /* Debug */,
+				A4QL00112FA2B0000001A422 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -393,6 +603,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A4MDV00022F783B000001A422 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		A4QL00092FA2B0000001A422 /* Markdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A4MDV00012F783B000001A422 /* XCRemoteSwiftPackageReference "swift-markdown" */;
+			productName = Markdown;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

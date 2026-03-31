@@ -524,6 +524,18 @@ final class TableAttachmentView: NSView, NSTextFieldDelegate {
         super.draw(dirtyRect)
 
         let colWidths = columnWidths(for: bounds.width)
+
+        // Fill header row background
+        let headerHeight = rowHeight(for: 0, columnWidths: colWidths)
+        let headerRect = NSRect(
+            x: borderWidth,
+            y: borderWidth,
+            width: bounds.width - borderWidth * 2,
+            height: headerHeight
+        )
+        theme.tableHeaderBackground.setFill()
+        headerRect.fill()
+
         theme.tableBorder.setStroke()
 
         // Horizontal lines

@@ -114,6 +114,12 @@ final class IncrementalDetector {
 
             resetLineAttributes(lineRange, textStorage: textStorage, theme: theme, typography: typography)
 
+            // Compact empty lines
+            if trimmedText.trimmingCharacters(in: .whitespaces).isEmpty {
+                textStorage.addAttribute(.paragraphStyle, value: typography.emptyLineParagraphStyle, range: lineRange)
+                continue
+            }
+
             // Detect structural prefix (heading, blockquote, HR, list)
             let isStructural = detectStructuralPrefix(
                 lineText: trimmedText, lineRange: lineRange,

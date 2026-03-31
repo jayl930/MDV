@@ -23,6 +23,7 @@ struct RenderResult {
     let horizontalRuleRanges: [NSRange]
     let inlineCodeRanges: [NSRange]
     let tables: [TableData]
+    let headings: [ToCEntry]
 }
 
 final class InlineRenderer {
@@ -37,7 +38,7 @@ final class InlineRenderer {
             ])
             return RenderResult(attributedString: empty, syntaxRanges: [], bulletRanges: [],
                               blockQuoteRanges: [], codeBlockRanges: [], horizontalRuleRanges: [],
-                              inlineCodeRanges: [], tables: [])
+                              inlineCodeRanges: [], tables: [], headings: [])
         }
 
         buildLineStartIndices(for: text)
@@ -56,6 +57,29 @@ final class InlineRenderer {
                        ctx: &ctx, sourceText: text)
         }
 
+        // Compact empty lines: reduce height of blank lines between blocks
+        let nsString = text as NSString
+        var scanPos = 0
+        while scanPos < nsString.length {
+            let lineRange = nsString.lineRange(for: NSRange(location: scanPos, length: 0))
+            let lineText = nsString.substring(with: lineRange)
+            let stripped = lineText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if stripped.isEmpty && lineRange.length > 0 {
+                let isInCodeBlock = ctx.codeBlockRanges.contains { codeRange in
+                    lineRange.location >= codeRange.location &&
+                    NSMaxRange(lineRange) <= NSMaxRange(codeRange)
+                }
+                if !isInCodeBlock {
+                    attributed.addAttribute(.paragraphStyle, value: typography.emptyLineParagraphStyle, range: lineRange)
+                }
+            }
+
+            let next = NSMaxRange(lineRange)
+            if next == scanPos { break }
+            scanPos = next
+        }
+
         // No string replacement — attributed string IS the source text with styles applied.
         // Tables are rendered as overlays, not by modifying the string.
         return RenderResult(
@@ -66,7 +90,8 @@ final class InlineRenderer {
             codeBlockRanges: ctx.codeBlockRanges,
             horizontalRuleRanges: ctx.horizontalRuleRanges,
             inlineCodeRanges: ctx.inlineCodeRanges,
-            tables: ctx.tables
+            tables: ctx.tables,
+            headings: ctx.headings
         )
     }
 
@@ -80,6 +105,7 @@ final class InlineRenderer {
         var horizontalRuleRanges: [NSRange] = []
         var inlineCodeRanges: [NSRange] = []
         var tables: [TableData] = []
+        var headings: [ToCEntry] = []
     }
 
     // MARK: - Range Helpers
@@ -253,6 +279,15 @@ final class InlineRenderer {
         ], range: trimmed)
         let syntaxLength = min(heading.level + 1, trimmed.length)
         ctx.syntaxRanges.append(NSRange(location: trimmed.location, length: syntaxLength))
+
+        // Extract heading title for TOC
+        let nsString = sourceText as NSString
+        let headingText = nsString.substring(with: trimmed)
+        let title = String(headingText.drop(while: { $0 == "#" }).drop(while: { $0 == " " }))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty {
+            ctx.headings.append(ToCEntry(level: heading.level, title: title, range: trimmed))
+        }
     }
 
     private func applyInlineMarker(

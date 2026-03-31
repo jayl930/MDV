@@ -58,6 +58,14 @@ struct Typography {
         return style
     }
 
+    var emptyLineParagraphStyle: NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.lineHeightMultiple = 0.9
+        style.paragraphSpacing = 0
+        style.paragraphSpacingBefore = 0
+        return style
+    }
+
     func headingParagraphStyle(level: Int) -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
         style.lineHeightMultiple = 1.25
