@@ -1,6 +1,7 @@
 # Markdown files (except README)
 *.md
 !README.md
+!BUILD.md
 
 # Xcode
 build/
