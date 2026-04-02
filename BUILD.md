@@ -53,6 +53,13 @@ Ad-hoc signing breaks two things:
 
 The build must use the default Apple Development certificate so that the app, Sparkle.framework, and MDVQuickLook.appex all share the same Team ID.
 
+### Sandbox Configuration
+
+The main app (MDV) must have **`ENABLE_APP_SANDBOX = NO`**. The QuickLook extension (MDVQuickLook) must have **`ENABLE_APP_SANDBOX = YES`**.
+
+- **Main app unsandboxed** — Sparkle's `Installer.xpc` inside the framework is ad-hoc signed with no Team ID. In a sandboxed app, macOS blocks the XPC service launch due to the signing mismatch, causing "An error occurred while launching the installer" on every update attempt. Removing the sandbox from the main app lets Sparkle's updater work without needing a $99 Developer ID certificate.
+- **QuickLook extension sandboxed** — macOS requires all app extensions to be sandboxed. Without it, the extension won't be registered and QuickLook previews silently fail.
+
 ---
 
 ## 3. Verify Code Signing
@@ -217,7 +224,7 @@ The app and Sparkle.framework have different Team IDs. Rebuild without `CODE_SIG
 Ad-hoc signed extensions aren't registered by macOS. Rebuild with team signing.
 
 ### "Update Error! An error occurred while launching the installer"
-Code signing mismatch between the installed app and the update. The user needs to manually replace the app from the DMG once. Future updates will work.
+The main app is sandboxed but Sparkle's `Installer.xpc` is ad-hoc signed (no Team ID). macOS blocks the XPC launch due to the signing mismatch. Fix: set `ENABLE_APP_SANDBOX = NO` for the MDV target (not the QuickLook target). See "Sandbox Configuration" above.
 
 ### Sparkle says "up to date" but new version exists
 `sparkle:version` in appcast must be strictly greater than the installed app's `CURRENT_PROJECT_VERSION`.
