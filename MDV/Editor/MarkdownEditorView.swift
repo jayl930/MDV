@@ -87,7 +87,7 @@ struct MarkdownEditorView: NSViewRepresentable {
             }
         }
 
-        textView.updateTextContainerInset(for: scrollView.contentSize.width)
+        // Inset is now updated synchronously via MarkdownTextView.setFrameSize
     }
 
     func makeCoordinator() -> Coordinator {
@@ -127,6 +127,7 @@ struct MarkdownEditorView: NSViewRepresentable {
             self.sourceText = parent.document.text
             self.tocModel = parent.tocModel
         }
+
 
         // MARK: - Text Change Handling (no re-rendering, deferred save)
 

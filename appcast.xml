@@ -3,6 +3,24 @@
     <channel>
         <title>MDV</title>
         <item>
+            <title>Version 1.2</title>
+            <sparkle:version>3</sparkle:version>
+            <sparkle:shortVersionString>1.2</sparkle:shortVersionString>
+            <pubDate>Thu, 03 Apr 2026 00:00:00 +0000</pubDate>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>MDV 1.2</h2>
+                <ul>
+                    <li>Fix cursor positioning with Korean (IME) text input</li>
+                    <li>Smoother text container inset updates during sidebar animation</li>
+                </ul>
+            ]]></description>
+            <enclosure url="https://github.com/jayl930/MDV/releases/download/v1.2/MDV-1.2.dmg"
+                       type="application/octet-stream"
+                       sparkle:edSignature="mvJ2U5aB9UF7r/prm7KvdE/BVfP+fyrkTi1PtyNbcrDORFc4kjDwtMnsvreTsAVMu7N605q6/j90IfVHYtxjCw=="
+                       length="3754090"/>
+        </item>
+        <item>
             <title>Version 1.1</title>
             <sparkle:version>2</sparkle:version>
             <sparkle:shortVersionString>1.1</sparkle:shortVersionString>

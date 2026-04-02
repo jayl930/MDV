@@ -54,10 +54,21 @@ final class MarkdownTextView: NSTextView {
         needsDisplay = true
     }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        if let scrollView = enclosingScrollView {
+            updateTextContainerInset(for: scrollView.frame.width)
+        }
+    }
+
     func updateTextContainerInset(for scrollViewWidth: CGFloat) {
         let maxContentWidth = currentTheme?.contentWidth ?? 720
         let totalHorizontal = max(horizontalPadding, (scrollViewWidth - maxContentWidth) / 2)
-        textContainerInset = NSSize(width: totalHorizontal, height: verticalPadding)
+        let newInset = NSSize(width: totalHorizontal, height: verticalPadding)
+        // Skip if inset barely changed — avoids expensive layout recalc during sidebar animation
+        guard abs(textContainerInset.width - newInset.width) > 1
+           || abs(textContainerInset.height - newInset.height) > 1 else { return }
+        textContainerInset = newInset
     }
 
     override func didChangeText() {
@@ -72,8 +83,72 @@ final class MarkdownTextView: NSTextView {
         }
     }
 
+    // MARK: - Cursor Drawing
+
+    // Tracks where we actually drew the cursor so blink erase covers it.
+    private var cursorDrawnRect: NSRect = .zero
+
+    // Expand blink invalidation to include our corrected cursor area.
+    // NSTextView's blink timer only invalidates its internal cached rect,
+    // which doesn't match our corrected position. Without this, the erase
+    // phase never redraws where we actually drew the cursor.
+    override func setNeedsDisplay(_ invalidRect: NSRect) {
+        if cursorDrawnRect != .zero {
+            super.setNeedsDisplay(invalidRect.union(cursorDrawnRect))
+        } else {
+            super.setNeedsDisplay(invalidRect)
+        }
+    }
+
     override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
-        super.drawInsertionPoint(in: rect, color: color, turnedOn: flag)
+        let correctedRect = correctedInsertionRect(fallback: rect)
+        cursorDrawnRect = correctedRect
+        if flag {
+            color.set()
+            correctedRect.fill()
+        }
+        // Erase (flag=false): do nothing — background+text redraw covers the
+        // area because setNeedsDisplay expanded the dirty rect to include it.
+    }
+
+    private func correctedInsertionRect(fallback rect: NSRect) -> NSRect {
+        let sel = selectedRange()
+        guard sel.length == 0,
+              let lm = layoutManager,
+              let tc = textContainer,
+              lm.numberOfGlyphs > 0 else { return rect }
+
+        let textLen = textStorage?.length ?? 0
+        let atEndOfDoc = sel.location >= textLen
+        let safeCharIdx = min(sel.location, max(0, textLen - 1))
+        let atNewline = atEndOfDoc && textLen > 0 &&
+            (textStorage?.string as NSString?)?.character(at: safeCharIdx) == 0x0A
+
+        if atNewline {
+            let extraFrag = lm.extraLineFragmentRect
+            return NSRect(
+                x: extraFrag.origin.x + textContainerInset.width,
+                y: extraFrag.origin.y + textContainerInset.height,
+                width: rect.width,
+                height: max(extraFrag.height, rect.height)
+            )
+        }
+
+        let gi = lm.glyphIndexForCharacter(at: safeCharIdx)
+        let safeGI = min(gi, lm.numberOfGlyphs - 1)
+        let frag = lm.lineFragmentRect(forGlyphAt: safeGI, effectiveRange: nil)
+        let loc = lm.location(forGlyphAt: safeGI)
+        var x = frag.origin.x + loc.x + textContainerInset.width
+        if atEndOfDoc {
+            let glyphBounds = lm.boundingRect(forGlyphRange: NSRange(location: safeGI, length: 1), in: tc)
+            x = glyphBounds.maxX + textContainerInset.width
+        }
+        return NSRect(
+            x: x,
+            y: frag.origin.y + textContainerInset.height,
+            width: rect.width,
+            height: frag.height
+        )
     }
 
     // MARK: - Drawing Ranges
