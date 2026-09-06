@@ -1,9 +1,31 @@
 import AppKit
 
+@MainActor
 final class SyntaxHider {
     private var previousLineRange: NSRange?
     private var previousHidden = IndexSet()
     private var previousBullets = IndexSet()
+    private var previousSyntaxRanges: [NSRange] = []
+    private var previousBulletRanges: [NSRange] = []
+
+    /// Keep cached UTF-16 masks aligned with TextKit's character edit. TextKit
+    /// already shifts glyph storage after the edit, so translating here avoids
+    /// treating every later Markdown marker as a visibility change.
+    func maintainVisibilityAfterEdit(
+        editedRange: NSRange,
+        changeInLength delta: Int,
+        glyphManager: GlyphManager
+    ) {
+        let oldLength = max(0, editedRange.length - delta)
+        let oldRange = NSRange(location: editedRange.location, length: oldLength)
+        previousHidden = translated(previousHidden, replacing: oldRange, delta: delta)
+        previousBullets = translated(previousBullets, replacing: oldRange, delta: delta)
+        previousSyntaxRanges = translated(previousSyntaxRanges, replacing: oldRange, delta: delta)
+        previousBulletRanges = translated(previousBulletRanges, replacing: oldRange, delta: delta)
+        glyphManager.hiddenIndices = previousHidden
+        glyphManager.bulletIndices = previousBullets
+        previousLineRange = nil
+    }
 
     func updateVisibility(
         layoutManager: NSLayoutManager,
@@ -14,30 +36,27 @@ final class SyntaxHider {
         bulletRanges: [NSRange]
     ) {
         let fullLength = (string as NSString).length
-        guard fullLength > 0 else { return }
+        guard fullLength > 0 else {
+            previousLineRange = nil
+            previousHidden.removeAll()
+            previousBullets.removeAll()
+            previousSyntaxRanges.removeAll()
+            previousBulletRanges.removeAll()
+            glyphManager.hiddenIndices.removeAll()
+            glyphManager.bulletIndices.removeAll()
+            return
+        }
 
         let cursorLineRange = lineRange(for: selectedRange, in: string)
+        let rangesUnchanged = syntaxRanges == previousSyntaxRanges
+            && bulletRanges == previousBulletRanges
 
-        var hidden = IndexSet()
-        var bullets = IndexSet()
-
-        for syntaxRange in syntaxRanges {
-            let clamped = clamp(syntaxRange, to: fullLength)
-            guard clamped.length > 0 else { continue }
-
-            if !rangesOverlap(cursorLineRange, clamped) {
-                hidden.insert(integersIn: clamped.location..<(clamped.location + clamped.length))
-            }
+        if rangesUnchanged, cursorLineRange == previousLineRange {
+            return
         }
 
-        for bulletRange in bulletRanges {
-            let clamped = clamp(bulletRange, to: fullLength)
-            guard clamped.length > 0 else { continue }
-
-            if !rangesOverlap(cursorLineRange, clamped) {
-                bullets.insert(integersIn: clamped.location..<(clamped.location + clamped.length))
-            }
-        }
+        let hidden = hiddenIndices(in: syntaxRanges, except: cursorLineRange, fullLength: fullLength)
+        let bullets = hiddenIndices(in: bulletRanges, except: cursorLineRange, fullLength: fullLength)
 
         // Compute what actually changed — only invalidate those glyphs
         let hiddenDiff = hidden.symmetricDifference(previousHidden)
@@ -48,6 +67,8 @@ final class SyntaxHider {
         glyphManager.bulletIndices = bullets
         previousHidden = hidden
         previousBullets = bullets
+        previousSyntaxRanges = syntaxRanges
+        previousBulletRanges = bulletRanges
 
         // Only invalidate glyph ranges that actually changed visibility
         let nsString = string as NSString
@@ -63,6 +84,45 @@ final class SyntaxHider {
         }
 
         previousLineRange = cursorLineRange
+    }
+
+    private func hiddenIndices(
+        in ranges: [NSRange], except cursorLineRange: NSRange, fullLength: Int
+    ) -> IndexSet {
+        var result = IndexSet()
+        for range in ranges {
+            let clamped = clamp(range, to: fullLength)
+            guard clamped.length > 0, !rangesOverlap(cursorLineRange, clamped) else { continue }
+            result.insert(integersIn: clamped.location..<NSMaxRange(clamped))
+        }
+        return result
+    }
+
+    private func translated(_ ranges: [NSRange], replacing editedRange: NSRange, delta: Int) -> [NSRange] {
+        ranges.compactMap { range in
+            if NSMaxRange(range) <= editedRange.location { return range }
+            if range.location >= NSMaxRange(editedRange) {
+                return NSRange(location: max(0, range.location + delta), length: range.length)
+            }
+            return nil
+        }
+    }
+
+    private func translated(_ indices: IndexSet, replacing editedRange: NSRange, delta: Int) -> IndexSet {
+        var result = IndexSet()
+        for indexRange in indices.rangeView {
+            let range = NSRange(location: indexRange.lowerBound, length: indexRange.count)
+            let shifted: NSRange
+            if NSMaxRange(range) <= editedRange.location {
+                shifted = range
+            } else if range.location >= NSMaxRange(editedRange) {
+                shifted = NSRange(location: max(0, range.location + delta), length: range.length)
+            } else {
+                continue
+            }
+            result.insert(integersIn: shifted.location..<NSMaxRange(shifted))
+        }
+        return result
     }
 
     func invalidateAll(layoutManager: NSLayoutManager, length: Int) {

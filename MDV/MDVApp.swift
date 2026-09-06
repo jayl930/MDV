@@ -26,6 +26,9 @@ struct MDVApp: App {
                 }
         }
         .defaultSize(width: 860, height: 720)
+        .commands {
+            TableOfContentsCommands()
+        }
 
         Settings {
             SettingsView()
@@ -42,6 +45,22 @@ struct MDVApp: App {
             NSApp.appearance = NSAppearance(named: .darkAqua)
         case .system:
             NSApp.appearance = nil
+        }
+    }
+}
+
+private struct TableOfContentsCommands: Commands {
+    @FocusedValue(\.tableOfContentsModel) private var tocModel
+
+    var body: some Commands {
+        CommandGroup(after: .sidebar) {
+            Button("Toggle Table of Contents") {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    tocModel?.toggleVisibility()
+                }
+            }
+            .keyboardShortcut("t", modifiers: [.command, .shift])
+            .disabled(tocModel == nil)
         }
     }
 }

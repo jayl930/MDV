@@ -7,6 +7,17 @@
 
 import SwiftUI
 
+private struct TableOfContentsModelKey: FocusedValueKey {
+    typealias Value = ToCModel
+}
+
+extension FocusedValues {
+    var tableOfContentsModel: ToCModel? {
+        get { self[TableOfContentsModelKey.self] }
+        set { self[TableOfContentsModelKey.self] = newValue }
+    }
+}
+
 struct ContentView: View {
     @Binding var document: MarkdownDocument
     @State private var tocModel = ToCModel()
@@ -23,6 +34,7 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .animation(.easeInOut(duration: 0.2), value: tocModel.isVisible)
+        .focusedSceneValue(\.tableOfContentsModel, tocModel)
         .overlay {
             // Pass isDark as a value so SwiftUI detects changes and calls updateNSView
             TitleBarAccessory(tocModel: tocModel, theme: theme, isDark: theme.isDark)
@@ -39,11 +51,11 @@ private struct TitleBarAccessory: NSViewRepresentable {
     let isDark: Bool  // value type to trigger updateNSView on theme change
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
+        let view = WindowObservingView(frame: .zero)
         context.coordinator.tocModel = tocModel
         context.coordinator.theme = theme
-        DispatchQueue.main.async {
-            context.coordinator.install(from: view)
+        view.windowDidChange = { [weak coordinator = context.coordinator] oldWindow, newWindow in
+            coordinator?.move(from: oldWindow, to: newWindow)
         }
         return view
     }
@@ -51,7 +63,15 @@ private struct TitleBarAccessory: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.tocModel = tocModel
         context.coordinator.theme = theme
+        context.coordinator.move(from: nil, to: nsView.window)
         context.coordinator.updateButtonAppearance()
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        if let observingView = nsView as? WindowObservingView {
+            observingView.windowDidChange = nil
+        }
+        coordinator.move(from: nsView.window, to: nil)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -60,13 +80,18 @@ private struct TitleBarAccessory: NSViewRepresentable {
         var tocModel: ToCModel?
         var theme: MDVTheme?
         private var button: NSButton?
-        private var installed = false
-
+        private var accessoryViewController: NSTitlebarAccessoryViewController?
         private weak var window: NSWindow?
 
-        func install(from view: NSView) {
-            guard !installed, let window = view.window else { return }
-            installed = true
+        func move(from oldWindow: NSWindow?, to newWindow: NSWindow?) {
+            if let installedWindow = window, installedWindow !== newWindow {
+                removeAccessory(from: installedWindow)
+            } else if window == nil, let oldWindow, oldWindow !== newWindow {
+                removeAccessory(from: oldWindow)
+            }
+
+            guard let window = newWindow else { return }
+            guard self.window !== window || accessoryViewController == nil else { return }
             self.window = window
 
             // Make title bar transparent so it uses the window background color
@@ -96,15 +121,17 @@ private struct TitleBarAccessory: NSViewRepresentable {
             accessoryVC.view = btn
             accessoryVC.layoutAttribute = .leading
             window.addTitlebarAccessoryViewController(accessoryVC)
+            accessoryViewController = accessoryVC
+        }
 
-            // Add keyboard shortcut via menu item
-            let menuItem = NSMenuItem(title: "Toggle Table of Contents", action: #selector(toggleToc), keyEquivalent: "t")
-            menuItem.keyEquivalentModifierMask = [.command, .shift]
-            menuItem.target = self
-            if let viewMenu = NSApp.mainMenu?.item(withTitle: "View")?.submenu {
-                viewMenu.addItem(NSMenuItem.separator())
-                viewMenu.addItem(menuItem)
+        private func removeAccessory(from window: NSWindow) {
+            if let accessoryViewController,
+               let index = window.titlebarAccessoryViewControllers.firstIndex(where: { $0 === accessoryViewController }) {
+                window.removeTitlebarAccessoryViewController(at: index)
             }
+            accessoryViewController = nil
+            button = nil
+            self.window = nil
         }
 
         func updateButtonAppearance() {
@@ -116,9 +143,20 @@ private struct TitleBarAccessory: NSViewRepresentable {
         @objc func toggleToc() {
             guard let tocModel = tocModel else { return }
             withAnimation(.easeInOut(duration: 0.2)) {
-                tocModel.isVisible.toggle()
+                tocModel.toggleVisibility()
             }
             updateButtonAppearance()
+        }
+    }
+
+
+    final class WindowObservingView: NSView {
+        var windowDidChange: ((NSWindow?, NSWindow?) -> Void)?
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            let oldWindow = window
+            super.viewWillMove(toWindow: newWindow)
+            windowDidChange?(oldWindow, newWindow)
         }
     }
 }

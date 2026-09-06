@@ -61,10 +61,6 @@ final class MDVTheme {
         isDark ? NSColor(hex: 0xC4BFB6) : NSColor(hex: 0x3D3833)
     }
 
-    var blockQuoteBar: NSColor {
-        isDark ? NSColor(hex: 0xDE7356).withAlphaComponent(0.5) : NSColor(hex: 0xC15F3C).withAlphaComponent(0.4)
-    }
-
     var blockQuoteBackground: NSColor {
         isDark ? NSColor(hex: 0x252220) : NSColor(hex: 0xF3F2EF)
     }

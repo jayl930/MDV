@@ -9,6 +9,7 @@ final class TableAttachmentView: NSView, NSTextFieldDelegate {
     private var cells: [[NSTextField]] = []  // [row][col]
     private var rawTexts: [[String]] = []   // original markdown text per cell
     private let tableData: TableData
+    private var markdownTable: MarkdownTable?
     private var theme: MDVTheme
     private let typography: Typography
     let numColumns: Int
@@ -28,6 +29,7 @@ final class TableAttachmentView: NSView, NSTextFieldDelegate {
     // Callbacks to coordinator
     var onTableEdited: (() -> Void)?
     var onStructuralChange: ((String) -> Void)?
+    var onEditingStateChanged: ((Bool) -> Void)?
 
     var isEditing: Bool { activeEditor != nil }
 
@@ -38,10 +40,11 @@ final class TableAttachmentView: NSView, NSTextFieldDelegate {
     private static let strikeRegex = try! NSRegularExpression(pattern: "~~(?!\\s)(.+?)(?<!\\s)~~")
     private static let linkRegex = try! NSRegularExpression(pattern: "\\[([^\\]]+)\\]\\(([^)]+)\\)")
 
-    init(tableData: TableData, theme: MDVTheme, typography: Typography) {
+    init(tableData: TableData, markdown: String, theme: MDVTheme, typography: Typography) {
         self.tableData = tableData
         self.theme = theme
         self.typography = typography
+        self.markdownTable = MarkdownTable(markdown: markdown)
         self.numColumns = tableData.numColumns
         self.numRows = 1 + tableData.bodyRows.count
         super.init(frame: .zero)
@@ -297,6 +300,7 @@ final class TableAttachmentView: NSView, NSTextFieldDelegate {
 
         addSubview(editor)
         activeEditor = editor
+        onEditingStateChanged?(true)
         displayCell.isHidden = true
 
         // Make editor first responder
@@ -304,14 +308,25 @@ final class TableAttachmentView: NSView, NSTextFieldDelegate {
     }
 
     func commitEditing() {
-        guard let editor = activeEditor,
-              editingRow >= 0, editingRow < rawTexts.count,
+        guard let editor = activeEditor else { return }
+        commitEditing(editor)
+    }
+
+    private func commitEditing(_ editor: NSTextField) {
+        guard activeEditor === editor else { return }
+        guard editingRow >= 0, editingRow < rawTexts.count,
               editingCol >= 0, editingCol < rawTexts[editingRow].count else {
-            cleanupEditor()
+            cleanupEditor(editor)
             return
         }
 
         let newText = editor.stringValue
+        guard !newText.contains("\n"), !newText.contains("\r") else {
+            cells[editingRow][editingCol].isHidden = false
+            cleanupEditor(editor)
+            NSSound.beep()
+            return
+        }
         rawTexts[editingRow][editingCol] = newText
 
         // Re-style the display cell
@@ -319,7 +334,7 @@ final class TableAttachmentView: NSView, NSTextFieldDelegate {
         displayCell.attributedStringValue = styledAttributedString(for: newText)
         displayCell.isHidden = false
 
-        cleanupEditor()
+        cleanupEditor(editor)
 
         // Notify coordinator
         onTableEdited?()
@@ -339,9 +354,12 @@ final class TableAttachmentView: NSView, NSTextFieldDelegate {
         cleanupEditor()
     }
 
-    private func cleanupEditor() {
+    private func cleanupEditor(_ editor: NSTextField? = nil) {
+        if let editor, activeEditor !== editor { return }
+        activeEditor?.delegate = nil
         activeEditor?.removeFromSuperview()
         activeEditor = nil
+        onEditingStateChanged?(false)
         editingRow = -1
         editingCol = -1
     }
@@ -349,7 +367,8 @@ final class TableAttachmentView: NSView, NSTextFieldDelegate {
     // MARK: - NSTextFieldDelegate
 
     func controlTextDidEndEditing(_ notification: Notification) {
-        commitEditing()
+        guard let editor = notification.object as? NSTextField else { return }
+        commitEditing(editor)
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -406,9 +425,9 @@ final class TableAttachmentView: NSView, NSTextFieldDelegate {
             menu.addItem(withTitle: "Delete Row", action: #selector(deleteRow(_:)), keyEquivalent: "")
         }
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(withTitle: "Add Column", action: #selector(addColumnRight(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Add Column Right", action: #selector(addColumnRight(_:)), keyEquivalent: "")
         if numColumns > 1 {
-            menu.addItem(withTitle: "Delete Last Column", action: #selector(deleteLastColumn(_:)), keyEquivalent: "")
+            menu.addItem(withTitle: "Delete Column", action: #selector(deleteColumn(_:)), keyEquivalent: "")
         }
 
         for item in menu.items where item.action != nil {
@@ -418,26 +437,30 @@ final class TableAttachmentView: NSView, NSTextFieldDelegate {
     }
 
     @objc private func addRowBelow(_ sender: Any) {
+        commitEditing()
         let md = markdownString()
         let newMD = TableOperations.addRowBelow(tableText: md, rowIndex: contextRow)
         onStructuralChange?(newMD)
     }
 
     @objc private func deleteRow(_ sender: Any) {
+        commitEditing()
         let md = markdownString()
         let newMD = TableOperations.deleteRow(tableText: md, rowIndex: contextRow)
         onStructuralChange?(newMD)
     }
 
     @objc private func addColumnRight(_ sender: Any) {
+        commitEditing()
         let md = markdownString()
-        let newMD = TableOperations.addColumn(tableText: md)
+        let newMD = TableOperations.addColumn(tableText: md, after: contextCol)
         onStructuralChange?(newMD)
     }
 
-    @objc private func deleteLastColumn(_ sender: Any) {
+    @objc private func deleteColumn(_ sender: Any) {
+        commitEditing()
         let md = markdownString()
-        let newMD = TableOperations.deleteLastColumn(tableText: md)
+        let newMD = TableOperations.deleteColumn(tableText: md, at: contextCol)
         onStructuralChange?(newMD)
     }
 
@@ -462,10 +485,10 @@ final class TableAttachmentView: NSView, NSTextFieldDelegate {
         if totalNatural <= availableWidth {
             let extra = availableWidth - totalNatural
             return naturalWidths.map { $0 + extra * ($0 / totalNatural) }
-        } else {
-            let scale = availableWidth / totalNatural
-            return naturalWidths.map { max(minColWidth, $0 * scale) }
         }
+        // Preserve a readable native control size. The attachment reports this wider
+        // intrinsic width so its enclosing text view can scroll horizontally.
+        return naturalWidths
     }
 
     private func rowHeight(for rowIndex: Int, columnWidths: [CGFloat]? = nil) -> CGFloat {
@@ -492,7 +515,7 @@ final class TableAttachmentView: NSView, NSTextFieldDelegate {
             totalHeight += rowHeight(for: row, columnWidths: colWidths)
         }
         totalHeight += CGFloat(numRows + 1) * borderWidth
-        return NSSize(width: min(totalWidth, width), height: totalHeight)
+        return NSSize(width: totalWidth, height: totalHeight)
     }
 
     override func layout() {
@@ -588,18 +611,13 @@ final class TableAttachmentView: NSView, NSTextFieldDelegate {
     // MARK: - Cell Content
 
     func markdownString() -> String {
-        var lines: [String] = []
-
-        let headerCells = rawTexts.first ?? []
-        lines.append("| " + headerCells.joined(separator: " | ") + " |")
-
-        let separators = headerCells.map { _ in "---" }
-        lines.append("| " + separators.joined(separator: " | ") + " |")
-
-        for rowIndex in 1..<rawTexts.count {
-            lines.append("| " + rawTexts[rowIndex].joined(separator: " | ") + " |")
+        guard var table = markdownTable else { return "" }
+        for row in rawTexts.indices {
+            for column in rawTexts[row].indices {
+                table.setCell(row: row, column: column, value: rawTexts[row][column])
+            }
         }
-
-        return lines.joined(separator: "\n")
+        markdownTable = table
+        return table.markdown()
     }
 }

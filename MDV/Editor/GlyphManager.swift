@@ -17,6 +17,18 @@ final class GlyphManager: NSObject, NSLayoutManagerDelegate {
         let count = glyphRange.length
         guard count > 0 else { return 0 }
 
+        // Most generated glyph runs contain no markdown markers. Check the
+        // supplied character indexes before allocating buffers or resolving
+        // substitute glyphs for that overwhelmingly common path.
+        let hidden = MainActor.assumeIsolated { hiddenIndices }
+        let bullets = MainActor.assumeIsolated { bulletIndices }
+        var containsReplacement = false
+        for i in 0..<count where hidden.contains(charIndexes[i]) || bullets.contains(charIndexes[i]) {
+            containsReplacement = true
+            break
+        }
+        guard containsReplacement else { return 0 }
+
         var modifiedGlyphs = Array(UnsafeBufferPointer(start: glyphs, count: count))
         var modifiedProps = Array(UnsafeBufferPointer(start: props, count: count))
         var didModify = false
@@ -26,33 +38,15 @@ final class GlyphManager: NSObject, NSLayoutManagerDelegate {
         var bulletChar: unichar = 0x2022 // •
         let hasBulletGlyph = CTFontGetGlyphsForCharacters(aFont as CTFont, &bulletChar, &bulletGlyph, 1)
 
-        // Get zero-width space glyph for hiding syntax characters.
-        // Using ZWSP glyph substitution instead of .null property because .null
-        // is meant for line break glyphs and causes NSLayoutManager to create
-        // phantom empty line fragments when used at the start of a line.
-        var zwsGlyph: CGGlyph = 0
-        var zwsChar: unichar = 0x200B // ZERO WIDTH SPACE
-        let hasZWSGlyph = CTFontGetGlyphsForCharacters(aFont as CTFont, &zwsChar, &zwsGlyph, 1)
-
-        // Access indices directly (safe since layout happens on main thread)
-        let hidden = MainActor.assumeIsolated { hiddenIndices }
-        let bullets = MainActor.assumeIsolated { bulletIndices }
-
         for i in 0..<count {
             let charIndex = charIndexes[i]
 
             if hidden.contains(charIndex) {
-                // Only hide ASCII characters — all markdown syntax is ASCII.
-                // Prevents CJK characters from being hidden if ranges drift.
-                if let storage = layoutManager.textStorage, charIndex < storage.length {
-                    let ch = (storage.string as NSString).character(at: charIndex)
-                    if ch >= 0x80 { continue }
-                }
-                if hasZWSGlyph {
-                    modifiedGlyphs[i] = zwsGlyph
-                } else {
-                    modifiedProps[i] = .null
-                }
+                // Preserve the already-shaped glyph array and its character
+                // mapping. Replacing glyph IDs with ZWSP reshapes neighboring
+                // emoji/fallback runs; the null property removes only this
+                // existing syntax glyph from layout and display.
+                modifiedProps[i].insert(.null)
                 didModify = true
             } else if bullets.contains(charIndex) && hasBulletGlyph {
                 modifiedGlyphs[i] = bulletGlyph

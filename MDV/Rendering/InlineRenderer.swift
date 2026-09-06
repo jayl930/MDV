@@ -26,75 +26,147 @@ struct RenderResult {
     let headings: [ToCEntry]
 }
 
+/// Main-actor adapter from semantic values to AppKit attributes. A palette is
+/// cheap to retain for one theme/typography generation and amortizes dictionary
+/// and font-trait construction across budgeted run application.
+final class MarkdownPresentationPalette {
+    private let theme: MDVTheme
+    private let typography: Typography
+    private var cache: [MarkdownPresentation.SemanticStyle: [NSAttributedString.Key: Any]] = [:]
+
+    init(theme: MDVTheme, typography: Typography) {
+        self.theme = theme
+        self.typography = typography
+    }
+
+    func attributes(for style: MarkdownPresentation.SemanticStyle) -> [NSAttributedString.Key: Any] {
+        if let cached = cache[style] { return cached }
+        var font: NSFont
+        switch style.font {
+        case .body: font = typography.body
+        case let .heading(level): font = typography.heading(level: level)
+        case .code: font = typography.code
+        }
+        var traits: NSFontTraitMask = []
+        if style.bold { traits.insert(.boldFontMask) }
+        if style.italic { traits.insert(.italicFontMask) }
+        if !traits.isEmpty { font = NSFontManager.shared.convert(font, toHaveTrait: traits) }
+
+        let foreground: NSColor
+        switch style.foreground {
+        case .text: foreground = theme.text
+        case .heading: foreground = theme.headingText
+        case .secondary: foreground = theme.secondaryText
+        case .code: foreground = theme.codeText
+        case .accent: foreground = theme.accent
+        case .clear: foreground = .clear
+        }
+        let paragraph: NSParagraphStyle
+        switch style.paragraph {
+        case .body: paragraph = typography.bodyParagraphStyle
+        case let .heading(level): paragraph = typography.headingParagraphStyle(level: level)
+        case .emptyLine: paragraph = typography.emptyLineParagraphStyle
+        case .blockQuote: paragraph = typography.blockQuoteParagraphStyle
+        case let .list(level): paragraph = typography.listParagraphStyle(level: level)
+        case .codeBlock: paragraph = typography.codeBlockParagraphStyle
+        }
+        var result: [NSAttributedString.Key: Any] = [
+            .font: font, .foregroundColor: foreground, .paragraphStyle: paragraph
+        ]
+        if style.underline {
+            result[.underlineStyle] = NSUnderlineStyle.single.rawValue
+            result[.underlineColor] = theme.accent.withAlphaComponent(0.4)
+        }
+        if style.strikethrough {
+            result[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            result[.strikethroughColor] = theme.secondaryText
+        }
+        if let destination = style.linkDestination { result[.link] = destination }
+        cache[style] = result
+        return result
+    }
+
+    func materialize(presentation: MarkdownPresentation) -> RenderResult {
+        let attributed = NSMutableAttributedString(string: presentation.source)
+        for run in presentation.runs {
+            attributed.setAttributes(attributes(for: run.style), range: run.range)
+        }
+        let metadata = presentation.metadata
+        return RenderResult(
+            attributedString: attributed,
+            syntaxRanges: metadata.syntaxRanges,
+            bulletRanges: metadata.bulletRanges,
+            blockQuoteRanges: metadata.blockQuoteRanges,
+            codeBlockRanges: metadata.codeBlockRanges,
+            horizontalRuleRanges: metadata.horizontalRuleRanges,
+            inlineCodeRanges: metadata.inlineCodeRanges,
+            tables: metadata.tables.map {
+                TableData(sourceRange: $0.sourceRange, numColumns: $0.numColumns, headerCells: $0.headerCells, bodyRows: $0.bodyRows)
+            },
+            headings: metadata.headings.map { ToCEntry(level: $0.level, title: $0.title, range: $0.range) }
+        )
+    }
+}
+
 final class InlineRenderer {
-    private var lineStartIndices: [String.Index] = []
+#if MDV_SEMANTIC_DIFFERENTIAL
+    private var lineStartUTF8Offsets: [Int] = []
+    private var unicodeCorrectionEnds: [Int] = []
+    private var unicodeCumulativeReductions: [Int] = []
+    private var sourceUTF8: [UInt8] = []
+    private var sourceNSString = "" as NSString
+#endif
 
     func render(text: String, theme: MDVTheme, typography: Typography) -> RenderResult {
+        MarkdownPresentationPalette(theme: theme, typography: typography)
+            .materialize(presentation: MarkdownPresentationParser.parse(text: text))
+    }
+
+#if MDV_SEMANTIC_DIFFERENTIAL
+    /// Test-only reference path retained while the semantic seam is validated.
+    /// Production builds have exactly one Markdown grammar traversal.
+    func renderLegacyForDifferential(text: String, theme: MDVTheme, typography: Typography) -> RenderResult {
         guard !text.isEmpty else {
             let empty = NSAttributedString(string: "", attributes: [
-                .font: typography.body,
-                .foregroundColor: theme.text,
+                .font: typography.body, .foregroundColor: theme.text,
                 .paragraphStyle: typography.bodyParagraphStyle
             ])
             return RenderResult(attributedString: empty, syntaxRanges: [], bulletRanges: [],
-                              blockQuoteRanges: [], codeBlockRanges: [], horizontalRuleRanges: [],
-                              inlineCodeRanges: [], tables: [], headings: [])
+                                blockQuoteRanges: [], codeBlockRanges: [], horizontalRuleRanges: [],
+                                inlineCodeRanges: [], tables: [], headings: [])
         }
-
-        buildLineStartIndices(for: text)
-
-        let document = Document(parsing: text)
+        sourceNSString = text as NSString
+        buildSourceOffsetIndex(for: text)
         let attributed = NSMutableAttributedString(string: text, attributes: [
-            .font: typography.body,
-            .foregroundColor: theme.text,
+            .font: typography.body, .foregroundColor: theme.text,
             .paragraphStyle: typography.bodyParagraphStyle
         ])
-
         var ctx = RenderContext()
-
-        for child in document.children {
-            applyMarkup(child, to: attributed, theme: theme, typography: typography,
-                       ctx: &ctx, sourceText: text)
+        for child in Document(parsing: text).children {
+            applyMarkup(child, to: attributed, theme: theme, typography: typography, ctx: &ctx, sourceText: text)
         }
-
-        // Compact empty lines: reduce height of blank lines between blocks
-        let nsString = text as NSString
-        var scanPos = 0
-        while scanPos < nsString.length {
-            let lineRange = nsString.lineRange(for: NSRange(location: scanPos, length: 0))
-            let lineText = nsString.substring(with: lineRange)
-            let stripped = lineText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            if stripped.isEmpty && lineRange.length > 0 {
-                let isInCodeBlock = ctx.codeBlockRanges.contains { codeRange in
-                    lineRange.location >= codeRange.location &&
-                    NSMaxRange(lineRange) <= NSMaxRange(codeRange)
-                }
-                if !isInCodeBlock {
-                    attributed.addAttribute(.paragraphStyle, value: typography.emptyLineParagraphStyle, range: lineRange)
-                }
+        let sortedCode = ctx.codeBlockRanges.sorted { $0.location < $1.location }
+        var codeIndex = 0, scanPosition = 0
+        while scanPosition < sourceNSString.length {
+            let line = sourceNSString.lineRange(for: NSRange(location: scanPosition, length: 0))
+            let stripped = sourceNSString.substring(with: line).trimmingCharacters(in: .whitespacesAndNewlines)
+            while codeIndex < sortedCode.count, NSMaxRange(sortedCode[codeIndex]) <= line.location { codeIndex += 1 }
+            let inCode = codeIndex < sortedCode.count && line.location >= sortedCode[codeIndex].location && NSMaxRange(line) <= NSMaxRange(sortedCode[codeIndex])
+            if stripped.isEmpty && line.length > 0 && !inCode {
+                attributed.addAttribute(.paragraphStyle, value: typography.emptyLineParagraphStyle, range: line)
             }
-
-            let next = NSMaxRange(lineRange)
-            if next == scanPos { break }
-            scanPos = next
+            let next = NSMaxRange(line); if next <= scanPosition { break }; scanPosition = next
         }
-
-        // No string replacement — attributed string IS the source text with styles applied.
-        // Tables are rendered as overlays, not by modifying the string.
         return RenderResult(
-            attributedString: attributed,
-            syntaxRanges: ctx.syntaxRanges,
-            bulletRanges: ctx.bulletRanges,
-            blockQuoteRanges: ctx.blockQuoteRanges,
-            codeBlockRanges: ctx.codeBlockRanges,
-            horizontalRuleRanges: ctx.horizontalRuleRanges,
-            inlineCodeRanges: ctx.inlineCodeRanges,
-            tables: ctx.tables,
-            headings: ctx.headings
+            attributedString: attributed, syntaxRanges: ctx.syntaxRanges, bulletRanges: ctx.bulletRanges,
+            blockQuoteRanges: ctx.blockQuoteRanges, codeBlockRanges: ctx.codeBlockRanges,
+            horizontalRuleRanges: ctx.horizontalRuleRanges, inlineCodeRanges: ctx.inlineCodeRanges,
+            tables: ctx.tables, headings: ctx.headings
         )
     }
+#endif
 
+#if MDV_SEMANTIC_DIFFERENTIAL
     // MARK: - Context
 
     private struct RenderContext {
@@ -113,7 +185,7 @@ final class InlineRenderer {
     /// Strips trailing newlines from a range so empty lines after block elements
     /// don't inherit their styling (blockquote bg/bar, code block bg, etc.)
     private func trimmedRange(_ range: NSRange, in text: String) -> NSRange {
-        let nsString = text as NSString
+        let nsString = sourceNSString
         var end = range.location + range.length
         while end > range.location && nsString.character(at: end - 1) == 0x0A /* \n */ {
             end -= 1
@@ -123,30 +195,78 @@ final class InlineRenderer {
 
     // MARK: - Range Conversion
 
-    private func buildLineStartIndices(for text: String) {
-        lineStartIndices = [text.startIndex]
-        for i in text.indices where text[i] == "\n" {
-            lineStartIndices.append(text.index(after: i))
+    private func buildSourceOffsetIndex(for text: String) {
+        let bytes = Array(text.utf8)
+        var utf8LineStarts = [0]
+        var correctionEnds: [Int] = []
+        var cumulativeReductions: [Int] = []
+        var utf8Offset = 0
+        var reduction = 0
+
+        while utf8Offset < bytes.count {
+            let firstByte = bytes[utf8Offset]
+            if firstByte < 0x80 {
+                utf8Offset += 1
+                if firstByte == 0x0A ||
+                    (firstByte == 0x0D && (utf8Offset == bytes.count || bytes[utf8Offset] != 0x0A)) {
+                    utf8LineStarts.append(utf8Offset)
+                }
+            } else if firstByte < 0xE0 {
+                utf8Offset += 2
+                reduction += 1
+                correctionEnds.append(utf8Offset)
+                cumulativeReductions.append(reduction)
+            } else if firstByte < 0xF0 {
+                utf8Offset += 3
+                reduction += 2
+                correctionEnds.append(utf8Offset)
+                cumulativeReductions.append(reduction)
+            } else {
+                utf8Offset += 4
+                reduction += 2
+                correctionEnds.append(utf8Offset)
+                cumulativeReductions.append(reduction)
+            }
         }
+        sourceUTF8 = bytes
+        lineStartUTF8Offsets = utf8LineStarts
+        unicodeCorrectionEnds = correctionEnds
+        unicodeCumulativeReductions = cumulativeReductions
     }
 
-    private func stringIndex(for location: SourceLocation, in text: String) -> String.Index? {
+    private func utf16Offset(for location: SourceLocation) -> Int? {
         let line = location.line - 1
         let col = location.column - 1
-        guard line >= 0, line < lineStartIndices.count, col >= 0 else { return nil }
-        let lineStart = lineStartIndices[line]
-        let utf8View = text.utf8
-        guard let lineStartUTF8 = lineStart.samePosition(in: utf8View) else { return nil }
-        guard let target = utf8View.index(lineStartUTF8, offsetBy: col, limitedBy: utf8View.endIndex) else { return nil }
-        return target
+        guard line >= 0, line < lineStartUTF8Offsets.count, col >= 0 else { return nil }
+        let lineStart = lineStartUTF8Offsets[line]
+        let target = lineStart + col
+        guard target <= sourceUTF8.count else { return nil }
+
+        // A source location must fall on a Unicode-scalar boundary.
+        if target < sourceUTF8.count, sourceUTF8[target] & 0xC0 == 0x80 {
+            return nil
+        }
+
+        var low = 0
+        var high = unicodeCorrectionEnds.count
+        while low < high {
+            let mid = low + (high - low) / 2
+            if unicodeCorrectionEnds[mid] <= target {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        let reduction = low > 0 ? unicodeCumulativeReductions[low - 1] : 0
+        return target - reduction
     }
 
     private func nsRange(from sourceRange: SourceRange, in text: String) -> NSRange? {
-        guard let start = stringIndex(for: sourceRange.lowerBound, in: text),
-              let end = stringIndex(for: sourceRange.upperBound, in: text),
-              start <= end, start >= text.startIndex, end <= text.endIndex
+        guard let start = utf16Offset(for: sourceRange.lowerBound),
+              let end = utf16Offset(for: sourceRange.upperBound),
+              start <= end
         else { return nil }
-        return NSRange(start..<end, in: text)
+        return NSRange(location: start, length: end - start)
     }
 
     // MARK: - Visitor
@@ -199,6 +319,7 @@ final class InlineRenderer {
                     .paragraphStyle: typography.codeBlockParagraphStyle
                 ], range: trimmed)
                 ctx.codeBlockRanges.append(trimmed)
+                ctx.syntaxRanges.append(contentsOf: fencedCodeSyntaxRanges(in: trimmed, sourceText: sourceText))
             }
 
         case let link as Link:
@@ -265,6 +386,70 @@ final class InlineRenderer {
 
     // MARK: - Element Handlers
 
+    /// The AST decides whether this span is a code block. Within that authoritative
+    /// span, identify only its concrete fence lines so code containing fence-like
+    /// text is never treated as syntax.
+    private func fencedCodeSyntaxRanges(in range: NSRange, sourceText: String) -> [NSRange] {
+        let source = sourceNSString
+        guard range.length > 0, NSMaxRange(range) <= source.length else { return [] }
+
+        let firstLine = source.lineRange(for: NSRange(location: range.location, length: 0))
+        let openerContent = source.substring(with: firstLine)
+            .trimmingCharacters(in: .newlines) as NSString
+        var indent = 0
+        while indent < min(3, openerContent.length), openerContent.character(at: indent) == 0x20 {
+            indent += 1
+        }
+        guard indent < openerContent.length else { return [] }
+        let marker = openerContent.character(at: indent)
+        guard marker == 0x60 || marker == 0x7E else { return [] } // ` or ~
+        var openerFenceLength = 0
+        while indent + openerFenceLength < openerContent.length,
+              openerContent.character(at: indent + openerFenceLength) == marker {
+            openerFenceLength += 1
+        }
+        guard openerFenceLength >= 3 else { return [] }
+
+        // Hide the delimiter and the complete info string, retaining indentation
+        // and the newline that gives the code body its own line.
+        var result = [NSRange(
+            location: firstLine.location + indent,
+            length: openerContent.length - indent
+        )]
+
+        var lineLocation = NSMaxRange(firstLine)
+        var closingRange: NSRange?
+        while lineLocation < NSMaxRange(range) {
+            let lineRange = source.lineRange(for: NSRange(location: lineLocation, length: 0))
+            let bounded = NSIntersectionRange(lineRange, range)
+            guard bounded.length > 0 else { break }
+            let line = source.substring(with: bounded).trimmingCharacters(in: .newlines) as NSString
+            var closingIndent = 0
+            while closingIndent < min(3, line.length), line.character(at: closingIndent) == 0x20 {
+                closingIndent += 1
+            }
+            var closingLength = 0
+            while closingIndent + closingLength < line.length,
+                  line.character(at: closingIndent + closingLength) == marker {
+                closingLength += 1
+            }
+            if closingLength >= openerFenceLength {
+                let remainder = line.substring(from: closingIndent + closingLength)
+                if remainder.trimmingCharacters(in: .whitespaces).isEmpty {
+                    closingRange = NSRange(
+                        location: bounded.location + closingIndent,
+                        length: line.length - closingIndent
+                    )
+                }
+            }
+            let next = NSMaxRange(lineRange)
+            if next <= lineLocation { break }
+            lineLocation = next
+        }
+        if let closingRange { result.append(closingRange) }
+        return result
+    }
+
     private func applyHeading(
         _ heading: Heading, range: NSRange?,
         to attributed: NSMutableAttributedString, theme: MDVTheme, typography: Typography,
@@ -277,16 +462,45 @@ final class InlineRenderer {
             .foregroundColor: theme.headingText,
             .paragraphStyle: typography.headingParagraphStyle(level: heading.level)
         ], range: trimmed)
-        let syntaxLength = min(heading.level + 1, trimmed.length)
-        ctx.syntaxRanges.append(NSRange(location: trimmed.location, length: syntaxLength))
+        // ATX headings have a leading `### ` marker. Setext headings (`Title\n===`)
+        // do not; their marker is the underline on the final line.
+        let headingSource = sourceNSString.substring(with: trimmed) as NSString
+        if headingSource.hasPrefix("#") {
+            var markerLength = 0
+            while markerLength < headingSource.length,
+                  headingSource.character(at: markerLength) == 0x23 { markerLength += 1 }
+            if markerLength < headingSource.length,
+               headingSource.character(at: markerLength) == 0x20 { markerLength += 1 }
+            if markerLength > 0 {
+                ctx.syntaxRanges.append(NSRange(location: trimmed.location, length: markerLength))
+            }
+        } else {
+            let newline = headingSource.range(of: "\n", options: .backwards)
+            if newline.location != NSNotFound {
+            ctx.syntaxRanges.append(NSRange(
+                location: trimmed.location + newline.location + newline.length,
+                length: trimmed.length - newline.location - newline.length
+            ))
+            }
+        }
 
         // Extract heading title for TOC
-        let nsString = sourceText as NSString
-        let headingText = nsString.substring(with: trimmed)
-        let title = String(headingText.drop(while: { $0 == "#" }).drop(while: { $0 == " " }))
+        let rawHeading = headingSource as String
+        let titleLine = rawHeading.components(separatedBy: "\n").first ?? rawHeading
+        let title = String(titleLine.drop(while: { $0 == "#" }).drop(while: { $0 == " " }))
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if !title.isEmpty {
             ctx.headings.append(ToCEntry(level: heading.level, title: title, range: trimmed))
+        }
+        for child in heading.children {
+            applyMarkup(
+                child,
+                to: attributed,
+                theme: theme,
+                typography: typography,
+                ctx: &ctx,
+                sourceText: sourceText
+            )
         }
     }
 
@@ -336,14 +550,21 @@ final class InlineRenderer {
             applyMarkup(child, to: attributed, theme: theme, typography: typography,
                        ctx: &ctx, sourceText: sourceText, listDepth: listDepth)
         }
-        let fullText = (attributed.string as NSString).substring(with: range)
-        if let closeBracket = fullText.firstIndex(of: "]") {
-            let textLength = fullText.distance(from: fullText.startIndex, to: closeBracket)
-            ctx.syntaxRanges.append(NSRange(location: range.location, length: 1))
-            let urlStart = range.location + textLength
-            let urlLen = range.length - textLength
-            if urlLen > 0 { ctx.syntaxRanges.append(NSRange(location: urlStart, length: urlLen)) }
-            let textRange = NSRange(location: range.location + 1, length: max(0, textLength - 1))
+        // Child source ranges are already converted to UTF-16 and remain correct
+        // for CJK, emoji, and escaped `]` characters in labels.
+        let childRanges = link.children.compactMap { child in
+            child.range.flatMap { nsRange(from: $0, in: sourceText) }
+        }
+        if let first = childRanges.first, let last = childRanges.last {
+            let textRange = NSUnionRange(first, last)
+            let prefixLength = textRange.location - range.location
+            let suffixStart = NSMaxRange(textRange)
+            if prefixLength > 0 {
+                ctx.syntaxRanges.append(NSRange(location: range.location, length: prefixLength))
+            }
+            if suffixStart < NSMaxRange(range) {
+                ctx.syntaxRanges.append(NSRange(location: suffixStart, length: NSMaxRange(range) - suffixStart))
+            }
             if textRange.length > 0 {
                 attributed.addAttributes([
                     .foregroundColor: theme.accent,
@@ -368,7 +589,7 @@ final class InlineRenderer {
         ], range: trimmed)
         ctx.blockQuoteRanges.append(trimmed)
 
-        let quoteText = (sourceText as NSString).substring(with: trimmed)
+        let quoteText = sourceNSString.substring(with: trimmed)
         var offset = 0
         for line in quoteText.components(separatedBy: "\n") {
             if line.isEmpty { offset += 1; continue }
@@ -400,38 +621,14 @@ final class InlineRenderer {
         // Table source text will be replaced with an NSTextAttachment by the Coordinator.
         // Style it with code font so it has a consistent look if briefly visible.
 
-        // Parse cells from the raw markdown lines
-        let tableText = (sourceText as NSString).substring(with: trimmed)
-        let lines = tableText.components(separatedBy: "\n")
-
-        var headerCells: [String] = []
-        var bodyRows: [[String]] = []
-
-        for line in lines {
-            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
-            if trimmedLine.isEmpty { continue }
-            if trimmedLine.allSatisfy({ $0 == "|" || $0 == "-" || $0 == ":" || $0 == " " }) {
-                continue
-            }
-            var cells = trimmedLine.components(separatedBy: "|")
-            if cells.first?.trimmingCharacters(in: .whitespaces).isEmpty == true { cells.removeFirst() }
-            if cells.last?.trimmingCharacters(in: .whitespaces).isEmpty == true { cells.removeLast() }
-            let trimmedCells = cells.map { $0.trimmingCharacters(in: .whitespaces) }
-
-            if headerCells.isEmpty {
-                headerCells = trimmedCells
-            } else {
-                bodyRows.append(trimmedCells)
-            }
-        }
-
-        guard !headerCells.isEmpty else { return }
+        let tableText = sourceNSString.substring(with: trimmed)
+        guard let model = MarkdownTable(markdown: tableText), !model.header.isEmpty else { return }
 
         ctx.tables.append(TableData(
             sourceRange: trimmed,
-            numColumns: headerCells.count,
-            headerCells: headerCells,
-            bodyRows: bodyRows
+            numColumns: model.columnCount,
+            headerCells: model.header,
+            bodyRows: model.body
         ))
     }
 
@@ -444,7 +641,7 @@ final class InlineRenderer {
         attributed.addAttribute(.paragraphStyle, value: typography.listParagraphStyle(level: listDepth - 1), range: range)
 
         let maxScan = min(10, range.length)
-        let lineText = (sourceText as NSString).substring(with: NSRange(location: range.location, length: maxScan))
+        let lineText = sourceNSString.substring(with: NSRange(location: range.location, length: maxScan))
         let leading = lineText.prefix(while: { $0 == " " }).count
 
         if lineText.dropFirst(leading).hasPrefix("- ") || lineText.dropFirst(leading).hasPrefix("* ") || lineText.dropFirst(leading).hasPrefix("+ ") {
@@ -452,7 +649,6 @@ final class InlineRenderer {
             ctx.bulletRanges.append(dashRange)
             // Space after bullet stays visible for proper spacing
         } else {
-            let rest = lineText.dropFirst(leading)
             // Ordered list: keep "1. " fully visible (number, dot, and space)
 
         }
@@ -462,10 +658,13 @@ final class InlineRenderer {
                        ctx: &ctx, sourceText: sourceText, listDepth: listDepth)
         }
     }
+#endif
 }
 
+#if MDV_SEMANTIC_DIFFERENTIAL
 private extension UInt16 {
     init(ascii: Character) {
         self = UInt16(ascii.asciiValue!)
     }
 }
+#endif

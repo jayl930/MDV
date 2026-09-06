@@ -2,7 +2,7 @@ import AppKit
 
 final class MarkdownTextView: NSTextView {
 
-    var onTextChange: ((String) -> Void)?
+    var onTextChange: (() -> Void)?
     var onSelectionChange: ((NSRange) -> Void)?
 
     private var currentTheme: MDVTheme?
@@ -73,7 +73,7 @@ final class MarkdownTextView: NSTextView {
 
     override func didChangeText() {
         super.didChangeText()
-        onTextChange?(string)
+        onTextChange?()
     }
 
     override func setSelectedRange(_ charRange: NSRange, affinity: NSSelectionAffinity, stillSelecting: Bool) {
@@ -116,7 +116,7 @@ final class MarkdownTextView: NSTextView {
         guard sel.length == 0,
               let lm = layoutManager,
               let tc = textContainer,
-              lm.numberOfGlyphs > 0 else { return rect }
+              (textStorage?.length ?? 0) > 0 else { return rect }
 
         let textLen = textStorage?.length ?? 0
         let atEndOfDoc = sel.location >= textLen
@@ -135,12 +135,11 @@ final class MarkdownTextView: NSTextView {
         }
 
         let gi = lm.glyphIndexForCharacter(at: safeCharIdx)
-        let safeGI = min(gi, lm.numberOfGlyphs - 1)
-        let frag = lm.lineFragmentRect(forGlyphAt: safeGI, effectiveRange: nil)
-        let loc = lm.location(forGlyphAt: safeGI)
+        let frag = lm.lineFragmentRect(forGlyphAt: gi, effectiveRange: nil)
+        let loc = lm.location(forGlyphAt: gi)
         var x = frag.origin.x + loc.x + textContainerInset.width
         if atEndOfDoc {
-            let glyphBounds = lm.boundingRect(forGlyphRange: NSRange(location: safeGI, length: 1), in: tc)
+            let glyphBounds = lm.boundingRect(forGlyphRange: NSRange(location: gi, length: 1), in: tc)
             x = glyphBounds.maxX + textContainerInset.width
         }
         return NSRect(
@@ -155,7 +154,6 @@ final class MarkdownTextView: NSTextView {
 
     struct BlockQuoteRange {
         let characterRange: NSRange
-        let barColor: NSColor
         let backgroundColor: NSColor
     }
 
@@ -167,34 +165,44 @@ final class MarkdownTextView: NSTextView {
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
-        guard let layoutManager = layoutManager, textContainer != nil else { return }
+        guard let layoutManager = layoutManager,
+              let textContainer = textContainer else { return }
 
-        drawCodeBlockBackgrounds(layoutManager: layoutManager, in: rect)
-        drawInlineCodeBackgrounds(layoutManager: layoutManager, in: rect)
-        drawBlockQuoteBackgrounds(layoutManager: layoutManager, in: rect)
-        drawHorizontalRules(layoutManager: layoutManager, in: rect)
+        // Converting an offscreen character range to glyphs can make TextKit lay
+        // out everything leading up to it. Resolve the dirty viewport once, then
+        // reject decorations by their cheap character ranges before touching glyphs.
+        let containerRect = rect.offsetBy(dx: -textContainerOrigin.x, dy: -textContainerOrigin.y)
+        let dirtyGlyphRange = layoutManager.glyphRange(forBoundingRect: containerRect, in: textContainer)
+        guard dirtyGlyphRange.length > 0 else { return }
+        let dirtyCharacterRange = layoutManager.characterRange(
+            forGlyphRange: dirtyGlyphRange,
+            actualGlyphRange: nil
+        )
+
+        drawCodeBlockBackgrounds(layoutManager: layoutManager, visibleRange: dirtyCharacterRange)
+        drawInlineCodeBackgrounds(layoutManager: layoutManager, visibleRange: dirtyCharacterRange)
+        drawBlockQuoteBackgrounds(layoutManager: layoutManager, visibleRange: dirtyCharacterRange)
+        drawHorizontalRules(layoutManager: layoutManager, visibleRange: dirtyCharacterRange)
     }
 
-    private func drawCodeBlockBackgrounds(layoutManager: NSLayoutManager, in rect: NSRect) {
+    private func drawCodeBlockBackgrounds(layoutManager: NSLayoutManager, visibleRange: NSRange) {
         for codeBlock in codeBlockRanges {
-            let glyphRange = layoutManager.glyphRange(forCharacterRange: codeBlock.range, actualCharacterRange: nil)
-            var blockRect = NSRect.zero
-
-            layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { (lineRect, _, _, _, _) in
-                let adjusted = NSRect(
-                    x: lineRect.origin.x + self.textContainerInset.width - 12,
-                    y: lineRect.origin.y + self.textContainerInset.height,
-                    width: lineRect.width + 24,
-                    height: lineRect.height
-                )
-                if blockRect == .zero {
-                    blockRect = adjusted
-                } else {
-                    blockRect = blockRect.union(adjusted)
+            let characterRange = NSIntersectionRange(codeBlock.range, visibleRange)
+            guard characterRange.length > 0 else { continue }
+            if var blockRect = blockSurfaceRect(
+                for: characterRange,
+                layoutManager: layoutManager,
+                horizontalPadding: 0
+            ) {
+                // Put rounded ends outside the clip when this dirty slice is in
+                // the middle of a block, preserving a continuous background.
+                if characterRange.location > codeBlock.range.location {
+                    blockRect.origin.y -= 8
+                    blockRect.size.height += 8
                 }
-            }
-
-            if blockRect != .zero {
+                if NSMaxRange(characterRange) < NSMaxRange(codeBlock.range) {
+                    blockRect.size.height += 8
+                }
                 let path = NSBezierPath(roundedRect: blockRect, xRadius: 8, yRadius: 8)
                 codeBlock.bgColor.setFill()
                 path.fill()
@@ -202,40 +210,102 @@ final class MarkdownTextView: NSTextView {
         }
     }
 
-    private func drawBlockQuoteBackgrounds(layoutManager: NSLayoutManager, in rect: NSRect) {
-        for quoteRange in blockQuoteRanges {
-            let glyphRange = layoutManager.glyphRange(forCharacterRange: quoteRange.characterRange, actualCharacterRange: nil)
-
-            layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { [weak self] (lineRect, _, _, _, _) in
-                guard let self = self else { return }
-
-                // Background
-                let bgRect = NSRect(
-                    x: self.textContainerInset.width - 4,
-                    y: lineRect.origin.y + self.textContainerInset.height,
-                    width: lineRect.width + 8,
-                    height: lineRect.height
-                )
-                let bgPath = NSBezierPath(roundedRect: bgRect, xRadius: 4, yRadius: 4)
+    private func drawBlockQuoteBackgrounds(layoutManager: NSLayoutManager, visibleRange: NSRange) {
+        for (index, quoteRange) in blockQuoteRanges.enumerated() {
+            let characterRange = NSIntersectionRange(quoteRange.characterRange, visibleRange)
+            guard characterRange.length > 0 else { continue }
+            let nestingDepth = blockQuoteRanges[..<index].reduce(into: 0) { depth, candidate in
+                if candidate.characterRange.location <= quoteRange.characterRange.location,
+                   NSMaxRange(candidate.characterRange) >= NSMaxRange(quoteRange.characterRange),
+                   candidate.characterRange != quoteRange.characterRange {
+                    depth += 1
+                }
+            }
+            // Nesting is already communicated by paragraph indentation. A second
+            // box creates a false shared edge when the nested quote ends last.
+            guard nestingDepth == 0 else { continue }
+            if var bgRect = blockSurfaceRect(
+                for: characterRange,
+                layoutManager: layoutManager,
+                horizontalPadding: 0
+            ) {
+                // Keep clipped portions continuous without asking TextKit to lay
+                // out either end of an offscreen quotation.
+                if characterRange.location > quoteRange.characterRange.location {
+                    bgRect.origin.y -= 8
+                    bgRect.size.height += 8
+                }
+                if NSMaxRange(characterRange) < NSMaxRange(quoteRange.characterRange) {
+                    bgRect.size.height += 8
+                }
+                let bgPath = NSBezierPath(roundedRect: bgRect, xRadius: 8, yRadius: 8)
                 quoteRange.backgroundColor.setFill()
                 bgPath.fill()
-
-                // Left bar
-                let barRect = NSRect(
-                    x: self.textContainerInset.width - 4,
-                    y: lineRect.origin.y + self.textContainerInset.height,
-                    width: 3,
-                    height: lineRect.height
-                )
-                quoteRange.barColor.setFill()
-                barRect.fill()
             }
         }
     }
 
-    private func drawHorizontalRules(layoutManager: NSLayoutManager, in rect: NSRect) {
+    /// Returns one restrained surface for a block. Vertical edges are derived
+    /// from baselines and font metrics, not paragraph-spacing-heavy fragment
+    /// rectangles, so the first and last lines receive equal visual padding.
+    /// The caller must pass a viewport-clipped range.
+    func blockSurfaceRect(
+        for characterRange: NSRange,
+        layoutManager: NSLayoutManager,
+        horizontalPadding: CGFloat
+    ) -> NSRect? {
+        guard let storage = textStorage, characterRange.length > 0 else { return nil }
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: characterRange,
+            actualCharacterRange: nil
+        )
+        guard glyphRange.length > 0 else { return nil }
+
+        var horizontalBounds = NSRect.null
+        var typographicTop = CGFloat.greatestFiniteMagnitude
+        var typographicBottom = -CGFloat.greatestFiniteMagnitude
+        var edgeFontSize: CGFloat = 0
+
+        let hiddenIndices = glyphManager.hiddenIndices
+        let source = storage.string as NSString
+        layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) {
+            lineRect, _, _, lineGlyphRange, _ in
+            let overlap = NSIntersectionRange(lineGlyphRange, glyphRange)
+            guard overlap.length > 0 else { return }
+            let lineCharacters = NSIntersectionRange(
+                layoutManager.characterRange(forGlyphRange: overlap, actualGlyphRange: nil),
+                characterRange
+            )
+            guard let characterIndex = (lineCharacters.location..<NSMaxRange(lineCharacters)).first(where: {
+                !hiddenIndices.contains($0) && source.character(at: $0) != 0x0A && source.character(at: $0) != 0x0D
+            }) else { return }
+            let referenceGlyph = layoutManager.glyphIndexForCharacter(at: characterIndex)
+            let font = storage.attribute(.font, at: characterIndex, effectiveRange: nil) as? NSFont
+                ?? NSFont.systemFont(ofSize: 13)
+            let baseline = lineRect.minY + layoutManager.location(forGlyphAt: referenceGlyph).y
+            typographicTop = min(typographicTop, baseline - font.ascender)
+            typographicBottom = max(typographicBottom, baseline - font.descender)
+            edgeFontSize = max(edgeFontSize, font.pointSize)
+            horizontalBounds = horizontalBounds.union(lineRect)
+        }
+
+        guard !horizontalBounds.isNull,
+              typographicTop.isFinite,
+              typographicBottom.isFinite else { return nil }
+        let verticalPadding = min(8, max(5, (edgeFontSize * 0.32).rounded()))
+        return NSRect(
+            x: horizontalBounds.minX + textContainerInset.width - horizontalPadding,
+            y: typographicTop + textContainerInset.height - verticalPadding,
+            width: horizontalBounds.width + horizontalPadding * 2,
+            height: typographicBottom - typographicTop + verticalPadding * 2
+        )
+    }
+
+    private func drawHorizontalRules(layoutManager: NSLayoutManager, visibleRange: NSRange) {
         for hr in horizontalRuleRanges {
-            let glyphRange = layoutManager.glyphRange(forCharacterRange: hr.range, actualCharacterRange: nil)
+            let characterRange = NSIntersectionRange(hr.range, visibleRange)
+            guard characterRange.length > 0 else { continue }
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: characterRange, actualCharacterRange: nil)
             layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { [weak self] (lineRect, _, _, _, _) in
                 guard let self = self else { return }
                 let y = lineRect.origin.y + self.textContainerInset.height + lineRect.height / 2
@@ -251,7 +321,7 @@ final class MarkdownTextView: NSTextView {
         }
     }
 
-    private func drawInlineCodeBackgrounds(layoutManager: NSLayoutManager, in rect: NSRect) {
+    private func drawInlineCodeBackgrounds(layoutManager: NSLayoutManager, visibleRange: NSRange) {
         guard let textContainer = textContainer, let textStorage = textStorage else { return }
         for code in inlineCodeRanges {
             guard code.range.location < textStorage.length else { continue }
@@ -262,6 +332,7 @@ final class MarkdownTextView: NSTextView {
             if contentRange.length >= 2 {
                 contentRange = NSRange(location: contentRange.location + 1, length: contentRange.length - 2)
             }
+            contentRange = NSIntersectionRange(contentRange, visibleRange)
             guard contentRange.length > 0 else { continue }
             let glyphRange = layoutManager.glyphRange(forCharacterRange: contentRange, actualCharacterRange: nil)
             guard glyphRange.length > 0 else { continue }
@@ -272,7 +343,6 @@ final class MarkdownTextView: NSTextView {
             let fontHeight = font.ascender - font.descender + font.leading
             let hPad: CGFloat = 2
             let vPad: CGFloat = 1.5
-            let totalGlyphs = layoutManager.numberOfGlyphs
 
             // Use line fragment enumeration with precise glyph positions instead of
             // enumerateEnclosingRects, which can produce oversized rects when zero-width
@@ -284,25 +354,10 @@ final class MarkdownTextView: NSTextView {
 
                 let startPoint = layoutManager.location(forGlyphAt: overlap.location)
 
-                // Compute width using the next glyph's position (gives exact advance-based width)
-                let afterGlyph = overlap.location + overlap.length
-                var codeWidth: CGFloat
-                if afterGlyph < totalGlyphs {
-                    let afterPoint = layoutManager.location(forGlyphAt: afterGlyph)
-                    // Check the next glyph is on the same line fragment
-                    var nextEffective = NSRange()
-                    layoutManager.lineFragmentRect(forGlyphAt: afterGlyph, effectiveRange: &nextEffective)
-                    if NSIntersectionRange(nextEffective, effectiveRange).length > 0 {
-                        codeWidth = afterPoint.x - startPoint.x
-                    } else {
-                        // Next glyph on different line — use line fragment used rect
-                        let usedRect = layoutManager.lineFragmentUsedRect(forGlyphAt: overlap.location, effectiveRange: nil)
-                        codeWidth = usedRect.width - startPoint.x
-                    }
-                } else {
-                    let usedRect = layoutManager.lineFragmentUsedRect(forGlyphAt: overlap.location, effectiveRange: nil)
-                    codeWidth = usedRect.width - startPoint.x
-                }
+                // The delimiters are excluded above, so the glyph bounds provide
+                // the content width without asking TextKit for the document-wide
+                // glyph count or probing the next (possibly unlaid) glyph.
+                let codeWidth = layoutManager.boundingRect(forGlyphRange: overlap, in: textContainer).width
 
                 // Use baseline from glyph location for precise vertical alignment
                 let baselineY = lineRect.origin.y + startPoint.y
@@ -339,122 +394,19 @@ final class MarkdownTextView: NSTextView {
         let range = selectedRange()
         guard range.length > 0 else { return }
         let selected = (string as NSString).substring(with: range)
-        if selected.hasPrefix(marker) && selected.hasSuffix(marker) && selected.count > marker.count * 2 {
+        let markerLength = (marker as NSString).length
+        let selectedLength = (selected as NSString).length
+        if selected.hasPrefix(marker) && selected.hasSuffix(marker) && selectedLength > markerLength * 2 {
             let start = selected.index(selected.startIndex, offsetBy: marker.count)
             let end = selected.index(selected.endIndex, offsetBy: -marker.count)
             let unwrapped = String(selected[start..<end])
             insertText(unwrapped, replacementRange: range)
-            setSelectedRange(NSRange(location: range.location, length: unwrapped.count))
+            setSelectedRange(NSRange(location: range.location, length: (unwrapped as NSString).length))
         } else {
             let wrapped = "\(marker)\(selected)\(marker)"
             insertText(wrapped, replacementRange: range)
-            setSelectedRange(NSRange(location: range.location + marker.count, length: selected.count))
+            setSelectedRange(NSRange(location: range.location + markerLength, length: selectedLength))
         }
-    }
-
-    // MARK: - Table Context Menu
-
-    var onTableModify: ((NSRange, String) -> Void)?  // (tableRange, newTableText)
-
-    override func menu(for event: NSEvent) -> NSMenu? {
-        let point = convert(event.locationInWindow, from: nil)
-        let charIndex = characterIndexForInsertion(at: point)
-
-        if let tableInfo = findTableAtIndex(charIndex) {
-            return buildTableMenu(tableInfo: tableInfo, charIndex: charIndex)
-        }
-        return super.menu(for: event)
-    }
-
-    private func findTableAtIndex(_ charIndex: Int) -> TableData? {
-        // Table context menu disabled — tables rendered as overlays
-        return nil
-    }
-
-    private func buildTableMenu(tableInfo: TableData, charIndex: Int) -> NSMenu {
-        let menu = NSMenu(title: "Table")
-        let rowIndex = TableOperations.findRowIndex(at: charIndex, in: tableInfo) ?? 0
-
-        let addBelow = NSMenuItem(title: "Add Row Below", action: #selector(tableAddRowBelow(_:)), keyEquivalent: "")
-        addBelow.representedObject = (tableInfo, rowIndex)
-        menu.addItem(addBelow)
-
-        let addAbove = NSMenuItem(title: "Add Row Above", action: #selector(tableAddRowAbove(_:)), keyEquivalent: "")
-        addAbove.representedObject = (tableInfo, rowIndex)
-        menu.addItem(addAbove)
-
-        if rowIndex > 0 {
-            let deleteRow = NSMenuItem(title: "Delete Row", action: #selector(tableDeleteRow(_:)), keyEquivalent: "")
-            deleteRow.representedObject = (tableInfo, rowIndex)
-            menu.addItem(deleteRow)
-        }
-
-        menu.addItem(NSMenuItem.separator())
-
-        let addCol = NSMenuItem(title: "Add Column", action: #selector(tableAddColumn(_:)), keyEquivalent: "")
-        addCol.representedObject = tableInfo
-        menu.addItem(addCol)
-
-        let delCol = NSMenuItem(title: "Delete Last Column", action: #selector(tableDeleteColumn(_:)), keyEquivalent: "")
-        delCol.representedObject = tableInfo
-        menu.addItem(delCol)
-
-        if rowIndex > 0 {
-            menu.addItem(NSMenuItem.separator())
-
-            let moveUp = NSMenuItem(title: "Move Row Up", action: #selector(tableMoveRowUp(_:)), keyEquivalent: "")
-            moveUp.representedObject = (tableInfo, rowIndex)
-            menu.addItem(moveUp)
-
-            let moveDown = NSMenuItem(title: "Move Row Down", action: #selector(tableMoveRowDown(_:)), keyEquivalent: "")
-            moveDown.representedObject = (tableInfo, rowIndex)
-            menu.addItem(moveDown)
-        }
-
-        return menu
-    }
-
-    @objc private func tableAddRowBelow(_ sender: NSMenuItem) {
-        guard let (info, rowIndex) = sender.representedObject as? (TableData, Int) else { return }
-        modifyTable(info: info) { TableOperations.addRowBelow(tableText: $0, rowIndex: rowIndex) }
-    }
-
-    @objc private func tableAddRowAbove(_ sender: NSMenuItem) {
-        guard let (info, rowIndex) = sender.representedObject as? (TableData, Int) else { return }
-        modifyTable(info: info) { TableOperations.addRowBelow(tableText: $0, rowIndex: max(0, rowIndex - 1)) }
-    }
-
-    @objc private func tableDeleteRow(_ sender: NSMenuItem) {
-        guard let (info, rowIndex) = sender.representedObject as? (TableData, Int) else { return }
-        modifyTable(info: info) { TableOperations.deleteRow(tableText: $0, rowIndex: rowIndex) }
-    }
-
-    @objc private func tableAddColumn(_ sender: NSMenuItem) {
-        guard let info = sender.representedObject as? TableData else { return }
-        modifyTable(info: info) { TableOperations.addColumn(tableText: $0) }
-    }
-
-    @objc private func tableDeleteColumn(_ sender: NSMenuItem) {
-        guard let info = sender.representedObject as? TableData else { return }
-        modifyTable(info: info) { TableOperations.deleteLastColumn(tableText: $0) }
-    }
-
-    @objc private func tableMoveRowUp(_ sender: NSMenuItem) {
-        guard let (info, rowIndex) = sender.representedObject as? (TableData, Int) else { return }
-        modifyTable(info: info) { TableOperations.moveRowUp(tableText: $0, rowIndex: rowIndex) }
-    }
-
-    @objc private func tableMoveRowDown(_ sender: NSMenuItem) {
-        guard let (info, rowIndex) = sender.representedObject as? (TableData, Int) else { return }
-        modifyTable(info: info) { TableOperations.moveRowDown(tableText: $0, rowIndex: rowIndex) }
-    }
-
-    private func modifyTable(info: TableData, transform: (String) -> String) {
-        let nsString = string as NSString
-        guard info.sourceRange.location + info.sourceRange.length <= nsString.length else { return }
-        let tableText = nsString.substring(with: info.sourceRange)
-        let newText = transform(tableText)
-        insertText(newText, replacementRange: info.sourceRange)
     }
 
     private func insertLink() {
@@ -465,7 +417,7 @@ final class MarkdownTextView: NSTextView {
         if selected.isEmpty {
             setSelectedRange(NSRange(location: range.location + 1, length: 0))
         } else {
-            setSelectedRange(NSRange(location: range.location + selected.count + 3, length: 3))
+            setSelectedRange(NSRange(location: range.location + (selected as NSString).length + 3, length: 3))
         }
     }
 }
